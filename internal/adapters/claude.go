@@ -107,7 +107,7 @@ func (a *claudeAdapter) Discover(ctx context.Context, cwd string) ([]model.Sessi
 		}
 		transcript, err := parseClaudeTranscript(path)
 		if err != nil {
-			return nil
+			return fmt.Errorf("discover claude transcript %s: %w", path, err)
 		}
 		if transcript.SessionID == "" {
 			transcript.SessionID = strings.TrimSuffix(entry.Name(), ".jsonl")

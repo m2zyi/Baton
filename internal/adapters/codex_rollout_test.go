@@ -92,26 +92,41 @@ func TestCodexRolloutReadDeduplicatesAndFilters(t *testing.T) {
 	}
 }
 
-func TestCodexRolloutIgnoresTruncatedTail(t *testing.T) {
+func TestCodexRolloutIgnoresOnlyUnterminatedTruncatedTail(t *testing.T) {
 	source := filepath.Join("testdata", "codex-home", "sessions", "2026", "11", "11", "rollout-2026-11-11T10-00-00-codex-session-1.jsonl")
 	data, err := os.ReadFile(source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, suffix := range []string{"", "\n"} {
-		path := filepath.Join(t.TempDir(), "truncated.jsonl")
-		truncated := append([]byte(nil), data...)
-		truncated = append(truncated, []byte(`{"timestamp":"2026-11-11T10:00:11Z","type":"response_item","payload":`+suffix)...)
-		if err := os.WriteFile(path, truncated, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		events, err := readCodexRollout(model.Session{ID: "codex-session-1", Agent: model.Codex, Path: path})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(events) != 7 {
-			t.Fatalf("suffix %q: got %d events, want 7", suffix, len(events))
-		}
+	for _, test := range []struct {
+		name    string
+		suffix  string
+		wantErr bool
+	}{
+		{name: "unterminated tail"},
+		{name: "newline-terminated corrupt record", suffix: "\n", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "truncated.jsonl")
+			truncated := append([]byte(nil), data...)
+			truncated = append(truncated, []byte(`{"timestamp":"2026-11-11T10:00:11Z","type":"response_item","payload":`+test.suffix)...)
+			if err := os.WriteFile(path, truncated, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			events, err := readCodexRollout(model.Session{ID: "codex-session-1", Agent: model.Codex, Path: path})
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "invalid JSON record") {
+					t.Fatalf("error = %v, want invalid JSON record", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 7 {
+				t.Fatalf("got %d events, want 7", len(events))
+			}
+		})
 	}
 }
 
@@ -135,5 +150,39 @@ func TestCodexRolloutReportsMiddleCorruption(t *testing.T) {
 	_, err = readCodexRollout(model.Session{ID: "codex-session-1", Agent: model.Codex, Path: path})
 	if err == nil || !strings.Contains(err.Error(), "invalid JSON record") {
 		t.Fatalf("error = %v, want invalid JSON record", err)
+	}
+}
+
+func TestCodexRolloutCanonicalBlockIDs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	lines := []string{
+		`{"type":"session_meta","payload":{"id":"s"}}`,
+		`{"type":"response_item","payload":{"id":"u1","type":"message","role":"user","content":[{"type":"input_text","text":"first"},{"type":"input_text","text":"second"}]}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"first\nsecond"}}`,
+		`{"type":"response_item","payload":{"id":"a1","type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","message":"answer"}}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	events, err := readCodexRollout(model.Session{ID: "s", Agent: model.Codex, Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		id   string
+		text string
+	}{
+		{"u1:content:0", "first"},
+		{"u1:content:1", "second"},
+		{"a1:text", "answer"},
+	}
+	if len(events) != len(want) {
+		t.Fatalf("got %d events, want %d: %#v", len(events), len(want), events)
+	}
+	for index, expectation := range want {
+		if events[index].ID != expectation.id || events[index].Text != expectation.text {
+			t.Fatalf("event %d = (%q, %q), want (%q, %q)", index, events[index].ID, events[index].Text, expectation.id, expectation.text)
+		}
 	}
 }

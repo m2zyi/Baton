@@ -60,6 +60,7 @@ func runFakeCodexServer(in *os.File, out *os.File, mode string) {
 		"createdAt": int64(1762850000),
 		"updatedAt": int64(1762850100),
 	}
+	page := 0
 
 	for scanner.Scan() {
 		var request fakeRPCRequest
@@ -84,6 +85,17 @@ func runFakeCodexServer(in *os.File, out *os.File, mode string) {
 				for {
 					time.Sleep(time.Hour)
 				}
+			}
+			if mode == "pages" {
+				page++
+				send(map[string]any{
+					"id": request.ID,
+					"result": map[string]any{
+						"data":       []any{},
+						"nextCursor": fmt.Sprintf("page-%d", page),
+					},
+				})
+				continue
 			}
 			send(map[string]any{"method": "warning", "params": map[string]any{"message": "ignored notification"}})
 			send(map[string]any{
@@ -276,6 +288,14 @@ func TestCodexAppServerPaginatedItemsAndHandoffSplit(t *testing.T) {
 	}
 	if !reflect.DeepEqual(events, again) {
 		t.Fatalf("event IDs are not deterministic:\nfirst:  %#v\nsecond: %#v", events, again)
+	}
+}
+
+func TestCodexAppServerDiscoverPaginatesExplicitly(t *testing.T) {
+	adapter, _ := fakeCodexAdapter(t, "pages")
+	_, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	if err == nil || !strings.Contains(err.Error(), "exceeded 1000 pages") {
+		t.Fatalf("error = %v, want explicit pagination limit failure", err)
 	}
 }
 

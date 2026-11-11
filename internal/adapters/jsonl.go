@@ -13,8 +13,9 @@ type jsonlLine struct {
 }
 
 // readJSONLines decodes complete JSONL records. A malformed final record is
-// treated as a partially written tail and ignored; malformed records anywhere
-// else are reported with their exact line number.
+// treated as a partially written tail only when the file does not end in a
+// newline. A newline-terminated malformed record is a complete, corrupt record
+// and is reported with its exact line number.
 func readJSONLines(path string) ([]jsonlLine, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -38,7 +39,7 @@ func readJSONLines(path string) ([]jsonlLine, error) {
 			continue
 		}
 		if !json.Valid(line) {
-			if index == last {
+			if !endsWithNewline && index == last {
 				break
 			}
 			return nil, fmt.Errorf("%s:%d: invalid JSON record", path, index+1)

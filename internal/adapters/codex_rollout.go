@@ -293,32 +293,14 @@ func readCodexRollout(s model.Session) ([]model.Event, error) {
 		}
 	}
 
-	responseSignatures := make(map[string]struct{})
-	type responseLine struct {
-		line int
-		role string
-	}
-	responseTexts := make(map[responseLine][]string)
-	for _, message := range messages {
-		if message.response {
-			responseSignatures[rolloutSignature(message.role, message.text)] = struct{}{}
-			key := responseLine{line: message.line, role: message.role}
-			responseTexts[key] = append(responseTexts[key], message.text)
-		}
-	}
-	for key, texts := range responseTexts {
-		responseSignatures[rolloutSignature(key.role, strings.Join(texts, "\n"))] = struct{}{}
-		responseSignatures[rolloutSignature(key.role, strings.Join(texts, ""))] = struct{}{}
-	}
+	duplicates := duplicateRolloutEvents(messages)
 
 	ordered := make([]orderedEvent, 0, len(fixed)+len(messages))
 	ordered = append(ordered, fixed...)
 	var userBuffer []model.Event
-	for _, message := range messages {
-		if !message.response {
-			if _, covered := responseSignatures[rolloutSignature(message.role, message.text)]; covered {
-				continue
-			}
+	for messageIndex, message := range messages {
+		if duplicates[messageIndex] {
+			continue
 		}
 		userBuffer = userBuffer[:0]
 		switch message.role {
@@ -356,6 +338,103 @@ func readCodexRollout(s model.Session) ([]model.Event, error) {
 		dedup.add(&events, item.event)
 	}
 	return events, nil
+}
+
+// duplicateRolloutEvents finds event_msg records that repeat the same dialogue
+// item already represented by a response_item. Matching is intentionally
+// one-to-one and limited to the same turn: identical text in a later turn is a
+// real repeated user request and must be retained.
+func duplicateRolloutEvents(messages []rolloutMessage) map[int]bool {
+	type responseGroup struct {
+		indices []int
+		line    int
+		role    string
+		texts   []string
+	}
+	groups := make([]*responseGroup, 0)
+	groupByLine := make(map[string]*responseGroup)
+	for index, message := range messages {
+		if !message.response {
+			continue
+		}
+		key := strconv.Itoa(message.line) + "\x00" + message.role
+		group := groupByLine[key]
+		if group == nil {
+			group = &responseGroup{line: message.line, role: message.role}
+			groupByLine[key] = group
+			groups = append(groups, group)
+		}
+		group.indices = append(group.indices, index)
+		group.texts = append(group.texts, message.text)
+	}
+
+	duplicates := make(map[int]bool)
+	usedGroups := make(map[int]bool)
+	for eventIndex, message := range messages {
+		if message.response {
+			continue
+		}
+		best := -1
+		bestDistance := 0
+		for groupIndex, group := range groups {
+			if usedGroups[groupIndex] || group.role != message.role {
+				continue
+			}
+			if !rolloutGroupMatches(group.role, group.texts, message.role, message.text) {
+				continue
+			}
+			if !rolloutMessagesShareTurn(messages, eventIndex, group.indices[0], message.role) ||
+				!rolloutMessagesShareTurn(messages, eventIndex, group.indices[len(group.indices)-1], message.role) {
+				continue
+			}
+			distance := absInt(message.line - group.line)
+			if best < 0 || distance < bestDistance {
+				best = groupIndex
+				bestDistance = distance
+			}
+		}
+		if best >= 0 {
+			usedGroups[best] = true
+			duplicates[eventIndex] = true
+		}
+	}
+	return duplicates
+}
+
+func rolloutGroupMatches(responseRole string, responseTexts []string, eventRole, eventText string) bool {
+	eventSignature := rolloutSignature(eventRole, eventText)
+	for _, text := range responseTexts {
+		if rolloutSignature(responseRole, text) == eventSignature {
+			return true
+		}
+	}
+	if rolloutSignature(responseRole, strings.Join(responseTexts, "\n")) == eventSignature {
+		return true
+	}
+	return rolloutSignature(responseRole, strings.Join(responseTexts, "")) == eventSignature
+}
+
+// rolloutMessagesShareTurn reports whether no dialogue message from a
+// conflicting role occurs between the two representations. That makes
+// response_item + event_msg duplicates within one turn, while a later repeated
+// request after the other side answered belongs to a new turn.
+func rolloutMessagesShareTurn(messages []rolloutMessage, left, right int, role string) bool {
+	if left > right {
+		left, right = right, left
+	}
+	for index := left + 1; index < right; index++ {
+		if messages[index].role != role {
+			return false
+		}
+	}
+	return true
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func rolloutSignature(role, text string) string {
@@ -400,6 +479,11 @@ func parseRolloutResponseItem(line int, order *int, raw json.RawMessage, session
 		if role != "user" && role != "assistant" {
 			return nil, nil, nil
 		}
+		type textBlock struct {
+			index int
+			text  string
+		}
+		var textBlocks []textBlock
 		for blockIndex, block := range item.Content {
 			if block.Type != "input_text" && block.Type != "output_text" && block.Type != "text" {
 				continue
@@ -411,13 +495,26 @@ func parseRolloutResponseItem(line int, order *int, raw json.RawMessage, session
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
+			textBlocks = append(textBlocks, textBlock{index: blockIndex, text: text})
+		}
+		for _, block := range textBlocks {
 			*order = *order + 1
+			eventID := stableID(baseID, "content", strconv.Itoa(block.index))
+			if role == "assistant" && len(textBlocks) == 1 {
+				// app-server exposes one assistant message as a single text
+				// field, so this is the representation shared by both
+				// backends. Multi-block assistant messages keep distinct
+				// content IDs instead of guessing a flattened identity; those
+				// items are not safe to migrate between backends by text.
+				// User messages retain the content-array index.
+				eventID = stableID(baseID, "text")
+			}
 			messages = append(messages, rolloutMessage{
 				line:     line,
 				order:    *order,
 				role:     role,
-				text:     text,
-				baseID:   stableID(baseID, "block", strconv.Itoa(blockIndex)),
+				text:     block.text,
+				baseID:   eventID,
 				ts:       ts,
 				response: true,
 			})

@@ -25,8 +25,8 @@ type appServerThread struct {
 }
 
 type appServerThreadPage struct {
-	Data       []appServerThread `json:"data"`
-	NextCursor *string           `json:"nextCursor"`
+	Data       json.RawMessage `json:"data"`
+	NextCursor *string         `json:"nextCursor"`
 }
 
 type appServerUserInput struct {
@@ -68,27 +68,44 @@ type appServerItem struct {
 }
 
 type appServerItemEntry struct {
-	TurnID        string        `json:"turnId"`
-	StartedAtMs   *int64        `json:"startedAtMs"`
-	CompletedAtMs *int64        `json:"completedAtMs"`
-	Item          appServerItem `json:"item"`
+	TurnID        string         `json:"turnId"`
+	StartedAtMs   *int64         `json:"startedAtMs"`
+	CompletedAtMs *int64         `json:"completedAtMs"`
+	Item          *appServerItem `json:"item"`
 }
 
 type appServerItemsPage struct {
-	Data       []appServerItemEntry `json:"data"`
-	NextCursor *string              `json:"nextCursor"`
+	Data       json.RawMessage `json:"data"`
+	NextCursor *string         `json:"nextCursor"`
 }
 
 type appServerTurn struct {
-	ID          string          `json:"id"`
-	Items       []appServerItem `json:"items"`
-	StartedAt   *int64          `json:"startedAt"`
-	CompletedAt *int64          `json:"completedAt"`
+	ID          string           `json:"id"`
+	Items       *[]appServerItem `json:"items"`
+	ItemsView   string           `json:"itemsView"`
+	StartedAt   *int64           `json:"startedAt"`
+	CompletedAt *int64           `json:"completedAt"`
 }
 
 type appServerTurnsPage struct {
-	Data       []appServerTurn `json:"data"`
+	Data       json.RawMessage `json:"data"`
 	NextCursor *string         `json:"nextCursor"`
+}
+
+const (
+	maxDiscoverPages = 1000
+	maxHistoryPages  = 10000
+)
+
+func decodePageData(method string, raw json.RawMessage, target any) error {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return failure(false, "%s response is missing required data field", method)
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return failure(false, "decode %s data: %w", method, err)
+	}
+	return nil
 }
 
 func classifyRPC(method string, err error) error {
@@ -118,7 +135,10 @@ func (a *codexAdapter) discoverAppServer(ctx context.Context, cwd string) ([]mod
 
 	sessions := make([]model.Session, 0)
 	seenCursors := make(map[string]struct{})
-	for pageNumber := 0; pageNumber < 1000; pageNumber++ {
+	for pageNumber := 0; ; pageNumber++ {
+		if pageNumber >= maxDiscoverPages {
+			return nil, failure(false, "thread/list exceeded %d pages without a terminal cursor", maxDiscoverPages)
+		}
 		result, callErr := client.call(ctx, "thread/list", params)
 		if callErr != nil {
 			return nil, classifyRPC("thread/list", callErr)
@@ -127,9 +147,13 @@ func (a *codexAdapter) discoverAppServer(ctx context.Context, cwd string) ([]mod
 		if err := json.Unmarshal(result, &page); err != nil {
 			return nil, failure(false, "decode thread/list: %w", err)
 		}
-		for _, thread := range page.Data {
+		var data []appServerThread
+		if err := decodePageData("thread/list", page.Data, &data); err != nil {
+			return nil, err
+		}
+		for _, thread := range data {
 			if thread.ID == "" {
-				continue
+				return nil, failure(false, "thread/list returned a thread without an id")
 			}
 			if cwd != "" && !sameDir(thread.CWD, cwd) {
 				continue
@@ -201,7 +225,10 @@ func (a *codexAdapter) readAppServerItems(ctx context.Context, client *rpcClient
 	}
 	var entries []appServerItemEntry
 	seenCursors := make(map[string]struct{})
-	for pageNumber := 0; pageNumber < 10000; pageNumber++ {
+	for pageNumber := 0; ; pageNumber++ {
+		if pageNumber >= maxHistoryPages {
+			return nil, failure(false, "thread/items/list exceeded %d pages without a terminal cursor", maxHistoryPages)
+		}
 		result, err := client.call(ctx, "thread/items/list", params)
 		if err != nil {
 			return nil, classifyRPC("thread/items/list", err)
@@ -210,7 +237,16 @@ func (a *codexAdapter) readAppServerItems(ctx context.Context, client *rpcClient
 		if err := json.Unmarshal(result, &page); err != nil {
 			return nil, failure(false, "decode thread/items/list: %w", err)
 		}
-		entries = append(entries, page.Data...)
+		var data []appServerItemEntry
+		if err := decodePageData("thread/items/list", page.Data, &data); err != nil {
+			return nil, err
+		}
+		for _, entry := range data {
+			if entry.Item == nil || entry.Item.Type == "" {
+				return nil, failure(false, "thread/items/list returned an incomplete item entry")
+			}
+		}
+		entries = append(entries, data...)
 		if page.NextCursor == nil || *page.NextCursor == "" {
 			break
 		}
@@ -232,7 +268,10 @@ func (a *codexAdapter) readAppServerTurns(ctx context.Context, client *rpcClient
 	}
 	var entries []appServerItemEntry
 	seenCursors := make(map[string]struct{})
-	for pageNumber := 0; pageNumber < 10000; pageNumber++ {
+	for pageNumber := 0; ; pageNumber++ {
+		if pageNumber >= maxHistoryPages {
+			return nil, failure(false, "thread/turns/list exceeded %d pages without a terminal cursor", maxHistoryPages)
+		}
 		result, err := client.call(ctx, "thread/turns/list", params)
 		if err != nil {
 			return nil, classifyRPC("thread/turns/list", err)
@@ -241,9 +280,27 @@ func (a *codexAdapter) readAppServerTurns(ctx context.Context, client *rpcClient
 		if err := json.Unmarshal(result, &page); err != nil {
 			return nil, failure(false, "decode thread/turns/list: %w", err)
 		}
-		for _, turn := range page.Data {
-			for _, item := range turn.Items {
-				entry := appServerItemEntry{TurnID: turn.ID, Item: item}
+		var data []appServerTurn
+		if err := decodePageData("thread/turns/list", page.Data, &data); err != nil {
+			return nil, err
+		}
+		for _, turn := range data {
+			// The request explicitly asks for full items. A summary or
+			// notLoaded response is not a complete history and must not be
+			// mistaken for an empty turn. Mark it fallback-capable so callers
+			// can use a rollout only when one is explicitly available.
+			if turn.ItemsView != "" && turn.ItemsView != "full" {
+				return nil, failure(true, "thread/turns/list returned itemsView %q after requesting full", turn.ItemsView)
+			}
+			if turn.Items == nil {
+				return nil, failure(false, "thread/turns/list returned turn %q without an items field", turn.ID)
+			}
+			for _, item := range *turn.Items {
+				if item.Type == "" {
+					return nil, failure(false, "thread/turns/list returned an incomplete item in turn %q", turn.ID)
+				}
+				item := item
+				entry := appServerItemEntry{TurnID: turn.ID, Item: &item}
 				if turn.StartedAt != nil {
 					value := *turn.StartedAt * 1000
 					entry.StartedAtMs = &value
@@ -271,7 +328,7 @@ func parseAppServerItemEntries(s model.Session, entries []appServerItemEntry) []
 	events := make([]model.Event, 0, len(entries))
 	dedup := newDeduper()
 	for index, entry := range entries {
-		item := entry.Item
+		item := *entry.Item
 		baseID := item.ID
 		if baseID == "" {
 			baseID = eventIDFromContent("item", s.ID, entry.TurnID, strconv.Itoa(index), item.Type)

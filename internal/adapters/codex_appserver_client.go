@@ -37,6 +37,7 @@ type rpcClient struct {
 	stdin      io.WriteCloser
 	messages   chan rpcMessage
 	readerDone chan error
+	closed     chan struct{}
 	stderr     *boundedBuffer
 	nextID     int
 	timeout    time.Duration
@@ -67,6 +68,7 @@ func startRPCClient(ctx context.Context, executable string, timeout time.Duratio
 		stdin:      stdin,
 		messages:   make(chan rpcMessage, 64),
 		readerDone: make(chan error, 1),
+		closed:     make(chan struct{}),
 		stderr:     stderr,
 		timeout:    timeout,
 	}
@@ -89,7 +91,12 @@ func (c *rpcClient) readLoop(stdout io.Reader) {
 				c.readerDone <- fmt.Errorf("decode codex app-server output: %w", decodeErr)
 				return
 			}
-			c.messages <- message
+			select {
+			case c.messages <- message:
+			case <-c.closed:
+				c.readerDone <- errors.New("codex app-server client closed")
+				return
+			}
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -208,6 +215,7 @@ func (c *rpcClient) replyError(id json.RawMessage, code int, message string) err
 
 func (c *rpcClient) Close() {
 	c.closeOnce.Do(func() {
+		close(c.closed)
 		_ = c.stdin.Close()
 		terminateProcess(c.cmd)
 		finished := make(chan struct{})
