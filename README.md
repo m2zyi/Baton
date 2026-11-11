@@ -16,6 +16,9 @@ go build -o terminus ./cmd/terminus
 ./terminus help
 ```
 
+将构建后的二进制放到 `PATH` 中（例如 `~/.local/bin/terminus`），让目标 agent
+能运行交接包里的 `terminus context <id>` 来读取完整历史。
+
 不需要模型 API key 即可导入、查看历史，或用伪 CLI 验证完整流程；真正对话沿用各 CLI 原有登录。
 
 ## 数据目录与权限
@@ -66,6 +69,10 @@ terminus context 0123abcd0123abcd0123abcd0123abcd --after 20 --limit 10 --json
 
 原生 agent 结束后返回菜单，可以继续同一 agent、切换 agent、查看上下文或退出。同一目录有多个对话时会列出 ID、agent、更新时间和 pending 状态供选择，不会静默选择“最近一个”。
 
+`resume ID --agent ...` 选择另一 agent 时也会补充它尚未收到的上下文，并更新活动
+agent。每次启动、恢复和切换从准备到原生进程结束、回执结算均持有对话锁；同一
+对话的另一个操作等待锁释放，等待可以随 context 取消。菜单展示期间不持锁。
+
 ## 交接协议
 
 每次切换生成 `Packet` 并先持久化为 `Pending`，然后启动目标 agent：
@@ -110,6 +117,9 @@ Terminus 将原始的 stdin/stdout/stderr 直接交给 `exec.Cmd`。当它们是
 
 菜单每次都从原 reader 逐字节读取到换行，不使用持久 `bufio.Reader` 预读，避免吃掉随后要交给 native 的输入。取消 context 会终止前台子进程；正常退出后返回菜单。
 
+单独向 Terminus 父进程发送 `SIGTERM` 时，会取消前台子进程并等待清理，再以
+`143` 退出。若正在等待菜单输入，退出等待最多三秒；未完成交接保留 pending。
+
 ## 只读后端
 
 Codex：
@@ -153,6 +163,7 @@ go vet ./...
 go test ./...
 go test -race ./...
 go build ./cmd/terminus
+python3 scripts/smoke_pty.py ./bin/terminus  # 先构建到 bin/terminus；可选 Python 3 检查
 ```
 
 集成测试使用 Go 测试 helper 作为伪 Codex/Claude 可执行文件，写入合成 transcript，并驱动真实 `internal/adapters`、`internal/store` 与 `internal/handoff`。覆盖：
@@ -164,5 +175,15 @@ go build ./cmd/terminus
 - pending 恢复、非零退出但回执已保存、无回执重发、多候选拒绝；
 - 来源 transcript 未被 Terminus 改写；
 - `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`TERMINUS_HOME` 完全隔离。
+
+独立回归还覆盖：显式恢复另一 agent 的活动标记、持锁时禁止启动第二个 native
+进程、锁等待取消、父进程收到 SIGTERM 后 native 子进程退出，以及菜单等待时终止。
+
+独立验收的合成 PTY smoke 已确认 fake native 的三个标准流都是 TTY，能进入
+raw mode、读取单字节，并在退出后回到 Terminus 菜单。此项使用合成进程，
+尚未验证真实 Codex/Claude 模型对话和首次 app-server 索引时序。
+
+本次交付的验证记录见 [docs/validation.md](docs/validation.md)，原始实现计划见
+[docs/implementation-plan.md](docs/implementation-plan.md)。
 
 测试不会运行真实模型，也不会读取用户私有会话。

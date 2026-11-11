@@ -2,6 +2,8 @@ package store
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +15,36 @@ import (
 
 	"terminus/internal/model"
 )
+
+func TestLockWaitCanBeCanceled(t *testing.T) {
+	s := New(t.TempDir())
+	c, err := s.Create(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		done <- s.WithLock(c.ID, func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	defer func() {
+		close(release)
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	called := false
+	err = s.WithLockContext(ctx, c.ID, func() error { called = true; return nil })
+	if !errors.Is(err, context.DeadlineExceeded) || called {
+		t.Fatalf("canceled lock wait: err=%v callback called=%v", err, called)
+	}
+}
 
 func TestAppendDedupesAcrossSourcesAndSessions(t *testing.T) {
 	store := New(t.TempDir())

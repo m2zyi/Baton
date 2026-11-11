@@ -3,6 +3,7 @@ package store
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -318,6 +319,12 @@ func (s *Store) Append(id string, events []model.Event) ([]model.Entry, error) {
 	return added, nil
 }
 func (s *Store) WithLock(id string, fn func() error) error {
+	return s.WithLockContext(context.Background(), id, fn)
+}
+
+// WithLockContext waits for the conversation lock without preventing an
+// interrupted CLI from stopping before it launches a native process.
+func (s *Store) WithLockContext(ctx context.Context, id string, fn func() error) error {
 	d, err := s.dir(id)
 	if err != nil {
 		return err
@@ -330,9 +337,28 @@ func (s *Store) WithLock(id string, fn func() error) error {
 	if err = f.Chmod(0600); err != nil {
 		return err
 	}
-	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		return err
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return fn()
 }

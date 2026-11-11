@@ -69,3 +69,36 @@ func TestReviewResumeHonorsConversationLock(t *testing.T) {
 		t.Fatalf("resume returned %d after lock released", code)
 	}
 }
+
+func TestRepeatedInitialRequestSurvivesRoundTrip(t *testing.T) {
+	f := newNativeFixture(t)
+	const request = "repeat this real user request"
+	if code, _, errout := f.run(t, "q\n", "start", "--agent", "codex", "--prompt", request); code != 0 {
+		t.Fatal(errout)
+	}
+	c := f.onlyConversation(t)
+	path := c.Bindings[model.Codex].Session.Path
+	if err := appendJSONLine(path, map[string]any{
+		"type": "response_item",
+		"payload": map[string]any{
+			"id": "later-real-user", "type": "message", "role": "user",
+			"content": []any{map[string]any{"type": "input_text", "text": request}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"claude", "codex"} {
+		if code, _, errout := f.run(t, "q\n", "resume", c.ID, "--agent", target); code != 0 {
+			t.Fatal(errout)
+		}
+		count := 0
+		for _, entry := range f.entries(t, c.ID) {
+			if entry.Event.Role == "user" && entry.Event.Text == request {
+				count++
+			}
+		}
+		if count != 2 {
+			t.Fatalf("after resuming %s: kept %d requests, want initial and later request", target, count)
+		}
+	}
+}

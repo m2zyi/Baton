@@ -50,6 +50,27 @@ type App struct {
 	errOut  io.Writer
 }
 
+type conversationLockKey struct{}
+
+// A lock covers one complete operation, including the native process and its
+// receipt/journal updates. Nested settlement reuses that operation's lock;
+// the interactive menu runs after it has been released.
+func (a *App) withConversation(ctx context.Context, id string, fn func(context.Context) (int, error)) (int, error) {
+	if ctx.Value(conversationLockKey{}) == id {
+		return fn(ctx)
+	}
+	code := 1
+	err := a.store.WithLockContext(ctx, id, func() error {
+		var err error
+		code, err = fn(context.WithValue(ctx, conversationLockKey{}, id))
+		return err
+	})
+	if err != nil && code == 0 {
+		code = 1
+	}
+	return code, err
+}
+
 func newAdapter(_ context.Context, agent model.Agent) (adapters.Adapter, error) {
 	return adapters.New(agent)
 }
@@ -206,6 +227,13 @@ func (a *App) startAction(ctx context.Context, agent model.Agent, first string) 
 	if err != nil {
 		return "", 1, err
 	}
+	code, err := a.withConversation(ctx, c.ID, func(ctx context.Context) (int, error) {
+		return a.startLocked(ctx, c, agent, first)
+	})
+	return c.ID, code, err
+}
+
+func (a *App) startLocked(ctx context.Context, c *model.Conversation, agent model.Agent, first string) (int, error) {
 	now := time.Now().UTC()
 	provisional := model.Event{
 		ID:        firstRequestPrefix + c.ID,
@@ -217,21 +245,21 @@ func (a *App) startAction(ctx context.Context, agent model.Agent, first string) 
 		Timestamp: now,
 	}
 	if _, err := a.store.Append(c.ID, []model.Event{provisional}); err != nil {
-		return "", 1, err
+		return 1, err
 	}
 	entries, err := a.store.Entries(c.ID, 0)
 	if err != nil {
-		return "", 1, err
+		return 1, err
 	}
 	packet, err := handoff.Build(c, entries, agent, budget)
 	if err != nil {
-		return "", 1, err
+		return 1, err
 	}
 	pending := &model.Pending{Packet: packet, StartedAt: now}
 	if agent == model.Claude {
 		uuid, err := randomUUID()
 		if err != nil {
-			return "", 1, err
+			return 1, err
 		}
 		pending.SessionID = uuid
 	}
@@ -239,11 +267,10 @@ func (a *App) startAction(ctx context.Context, agent model.Agent, first string) 
 	c.ActiveAgent = agent
 	c.UpdatedAt = now
 	if err := a.store.Save(c); err != nil {
-		return "", 1, err
+		return 1, err
 	}
 	runPrompt := handoff.Prompt(packet, a.contextCommand(c.ID)) + "\n\n" + first
-	code, err := a.runAndSettle(ctx, c, runPrompt)
-	return c.ID, code, err
+	return a.runAndSettle(ctx, c, runPrompt)
 }
 
 func (a *App) attach(ctx context.Context, args []string) (int, error) {
@@ -275,22 +302,29 @@ func (a *App) attachAction(ctx context.Context, agent model.Agent, sessionID str
 	if err != nil {
 		return "", 1, err
 	}
+	code, err := a.withConversation(ctx, c.ID, func(ctx context.Context) (int, error) {
+		return a.attachLocked(ctx, c, agent, session)
+	})
+	return c.ID, code, err
+}
+
+func (a *App) attachLocked(ctx context.Context, c *model.Conversation, agent model.Agent, session model.Session) (int, error) {
 	c.Bindings[agent] = model.Binding{Session: session}
 	c.UpdatedAt = time.Now().UTC()
 	if err := a.store.Save(c); err != nil {
-		return "", 1, err
+		return 1, err
 	}
 	resolved, err := a.importSessionDirect(ctx, c, session, nil)
 	if err != nil {
-		return "", 1, err
+		return 1, err
 	}
 	c.Bindings[agent] = model.Binding{Session: resolved}
 	c.ActiveAgent = agent
 	c.UpdatedAt = time.Now().UTC()
 	if err := a.store.Save(c); err != nil {
-		return "", 1, err
+		return 1, err
 	}
-	return c.ID, 0, nil
+	return 0, nil
 }
 
 func (a *App) switchCommand(ctx context.Context, args []string) (int, error) {
@@ -339,6 +373,12 @@ func (a *App) switchCommand(ctx context.Context, args []string) (int, error) {
 }
 
 func (a *App) handoffAction(ctx context.Context, id string, target model.Agent, fromSession string) (int, error) {
+	return a.withConversation(ctx, id, func(ctx context.Context) (int, error) {
+		return a.handoffLocked(ctx, id, target, fromSession)
+	})
+}
+
+func (a *App) handoffLocked(ctx context.Context, id string, target model.Agent, fromSession string) (int, error) {
 	c, err := a.store.Load(id)
 	if err != nil {
 		return 1, err
@@ -409,6 +449,9 @@ func (a *App) handoffAction(ctx context.Context, id string, target model.Agent, 
 		if importErr != nil {
 			return 1, importErr
 		}
+		if err := a.markActive(id, target); err != nil {
+			return 1, err
+		}
 		return 0, nil
 	}
 	pending := &model.Pending{Packet: packet, StartedAt: time.Now().UTC()}
@@ -453,6 +496,12 @@ func (a *App) resume(ctx context.Context, args []string) (int, error) {
 }
 
 func (a *App) resumeAction(ctx context.Context, id string, selected model.Agent) (int, error) {
+	return a.withConversation(ctx, id, func(ctx context.Context) (int, error) {
+		return a.resumeLocked(ctx, id, selected)
+	})
+}
+
+func (a *App) resumeLocked(ctx context.Context, id string, selected model.Agent) (int, error) {
 	c, err := a.store.Load(id)
 	if err != nil {
 		return 1, err
@@ -484,6 +533,9 @@ func (a *App) resumeAction(ctx context.Context, id string, selected model.Agent)
 		}
 		return a.runAndSettle(ctx, c, prompt)
 	}
+	if selected != c.ActiveAgent {
+		return a.handoffLocked(ctx, id, selected, "")
+	}
 	binding, ok := c.Bindings[selected]
 	if !ok {
 		return 1, fmt.Errorf("conversation has no bound %s session", selected)
@@ -506,7 +558,20 @@ func (a *App) resumeAction(ctx context.Context, id string, selected model.Agent)
 	if importErr != nil {
 		return 1, importErr
 	}
+	if err := a.markActive(id, selected); err != nil {
+		return 1, err
+	}
 	return 0, nil
+}
+
+func (a *App) markActive(id string, agent model.Agent) error {
+	c, err := a.store.Load(id)
+	if err != nil {
+		return err
+	}
+	c.ActiveAgent = agent
+	c.UpdatedAt = time.Now().UTC()
+	return a.store.Save(c)
 }
 
 func (a *App) list(ctx context.Context, args []string) (int, error) {
@@ -980,43 +1045,40 @@ func (a *App) runAndSettle(ctx context.Context, c *model.Conversation, runPrompt
 }
 
 func (a *App) settle(ctx context.Context, id string) (int, error) {
-	var code int
-	err := a.store.WithLock(id, func() error {
+	return a.withConversation(ctx, id, func(ctx context.Context) (int, error) {
 		c, err := a.store.Load(id)
 		if err != nil {
-			return err
+			return 1, err
 		}
 		if c.Pending == nil {
-			return nil
+			return 0, nil
 		}
-		return a.settleConversation(ctx, c)
+		if err := a.settleConversation(ctx, c); err != nil {
+			return 1, err
+		}
+		return 0, nil
 	})
-	if err != nil {
-		code = 1
-		return code, err
-	}
-	return 0, nil
 }
 
 func (a *App) recoverPending(ctx context.Context, id string) (bool, error) {
 	recovered := false
-	err := a.store.WithLock(id, func() error {
+	_, err := a.withConversation(ctx, id, func(ctx context.Context) (int, error) {
 		c, err := a.store.Load(id)
 		if err != nil {
-			return err
+			return 1, err
 		}
 		if c.Pending == nil {
-			return nil
+			return 0, nil
 		}
 		err = a.settleConversation(ctx, c)
 		if errors.Is(err, errNoReceipt) {
-			return nil
+			return 0, nil
 		}
 		if err != nil {
-			return err
+			return 1, err
 		}
 		recovered = true
-		return nil
+		return 0, nil
 	})
 	return recovered, err
 }
