@@ -45,13 +45,22 @@ func IsInjected(text string) bool {
 func escaped(s string) string {
 	return strings.ReplaceAll(s, "[[TERMINUS_HANDOFF:", "[\\u005bTERMINUS_HANDOFF:")
 }
-func line(e model.Entry) string { b, _ := json.Marshal(e); return escaped(string(b)) + "\n" }
+func line(e model.Entry) (string, error) {
+	b, err := json.Marshal(e)
+	if err != nil {
+		return "", fmt.Errorf("encode journal event %d: %w", e.Seq, err)
+	}
+	return escaped(string(b)) + "\n", nil
+}
 
 // excerpt preserves event metadata and clips only its text, at a rune boundary.
-func excerpt(e model.Entry, limit int, tail bool) (string, bool) {
-	full := line(e)
+func excerpt(e model.Entry, limit int, tail bool) (string, bool, error) {
+	full, err := line(e)
+	if err != nil {
+		return "", false, err
+	}
 	if len(full) <= limit {
-		return full, false
+		return full, false, nil
 	}
 	rs := []rune(strings.ToValidUTF8(e.Event.Text, "�"))
 	lo, hi := 0, len(rs)
@@ -64,7 +73,10 @@ func excerpt(e model.Entry, limit int, tail bool) (string, bool) {
 		} else {
 			x.Event.Text = string(rs[:mid]) + "…"
 		}
-		l := line(x)
+		l, err := line(x)
+		if err != nil {
+			return "", false, err
+		}
 		if len(l) <= limit {
 			best = l
 			lo = mid + 1
@@ -72,7 +84,7 @@ func excerpt(e model.Entry, limit int, tail bool) (string, bool) {
 			hi = mid - 1
 		}
 	}
-	return best, true
+	return best, true, nil
 }
 func Build(c *model.Conversation, entries []model.Entry, target model.Agent, budget int) (model.Packet, error) {
 	if c == nil || (target != model.Codex && target != model.Claude) {
@@ -104,25 +116,63 @@ func Build(c *model.Conversation, entries []model.Entry, target model.Agent, bud
 	}
 	var all strings.Builder
 	for _, e := range selected {
-		all.WriteString(line(e))
+		encoded, err := line(e)
+		if err != nil {
+			return model.Packet{}, err
+		}
+		all.WriteString(encoded)
 	}
 	if all.Len() <= budget {
 		p.Body = all.String()
 		return p, nil
 	}
-	// Reserve space for an explicit count, preserving the first and most recent events.
-	reserve := 64
+	// Give user requests their own allocation before tool output can consume
+	// the budget. Render selected excerpts in journal order after allocating.
+	reserve := len(fmt.Sprintf("[Omitted or truncated events: %d]\n", len(selected)))
 	remaining := budget - reserve
 	chunks := make([]string, len(selected))
 	clipped := make([]bool, len(selected))
-	firstLimit := remaining / 2
-	chunks[0], clipped[0] = excerpt(selected[0], firstLimit, false)
-	remaining -= len(chunks[0])
-	for i := len(selected) - 1; i > 0; i-- {
-		chunks[i], clipped[i] = excerpt(selected[i], remaining, true)
+	firstUser, latestUser := -1, -1
+	for i, e := range selected {
+		if e.Event.Kind == "message" && e.Event.Role == "user" {
+			if firstUser == -1 {
+				firstUser = i
+			}
+			latestUser = i
+		}
+	}
+	anchors := []int{}
+	if latestUser >= 0 {
+		anchors = append(anchors, latestUser)
+		if firstUser != latestUser {
+			anchors = append(anchors, firstUser)
+		}
+	} else {
+		anchors = append(anchors, len(selected)-1)
+	}
+	allocated := make([]bool, len(selected))
+	allocate := func(i, limit int, tail bool) error {
+		var err error
+		chunks[i], clipped[i], err = excerpt(selected[i], limit, tail)
 		remaining -= len(chunks[i])
-		if chunks[i] == "" {
-			break
+		allocated[i] = true
+		return err
+	}
+	for n, i := range anchors {
+		if err := allocate(i, remaining/(len(anchors)-n), false); err != nil {
+			return model.Packet{}, err
+		}
+	}
+	// Recent conversation takes precedence over bulk tool records. Excerpt
+	// tools from their tail, where exit status and final errors usually sit.
+	for _, speech := range []bool{true, false} {
+		for i := len(selected) - 1; i >= 0; i-- {
+			if allocated[i] || (selected[i].Event.Kind == "message") != speech {
+				continue
+			}
+			if err := allocate(i, remaining, !speech); err != nil {
+				return model.Packet{}, err
+			}
 		}
 	}
 	var body strings.Builder
