@@ -1,0 +1,13 @@
+{"timestamp":"2026-11-11T10:00:00Z","type":"session_meta","payload":{"session_id":"codex-session-root","id":"codex-session-1","timestamp":"2026-11-11T10:00:00Z","cwd":"/tmp/terminus-test/project","originator":"cli","cli_version":"0.167.1","source":"cli"}}
+{"timestamp":"2026-11-11T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello codex"}]}}
+{"timestamp":"2026-11-11T10:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"hello codex"}}
+{"timestamp":"2026-11-11T10:00:02Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"developer instructions must not be imported"}]}}
+{"timestamp":"2026-11-11T10:00:03Z","type":"response_item","payload":{"type":"reasoning","summary":["private reasoning"]}}
+{"timestamp":"2026-11-11T10:00:04Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"assistant reply"}]}}
+{"timestamp":"2026-11-11T10:00:04Z","type":"event_msg","payload":{"type":"agent_message","message":"assistant reply"}}
+{"timestamp":"2026-11-11T10:00:05Z","type":"response_item","payload":{"type":"function_call","id":"item-call-1","call_id":"call-1","name":"shell","arguments":"{\"command\":\"echo hi\"}"}}
+{"timestamp":"2026-11-11T10:00:06Z","type":"response_item","payload":{"type":"function_call_output","id":"item-output-1","call_id":"call-1","output":"hi\n"}}
+{"timestamp":"2026-11-11T10:00:07Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/tmp/terminus-test/project</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-11-11T10:00:08Z","type":"compacted","payload":{"message":"Earlier summary of the conversation."}}
+{"timestamp":"2026-11-11T10:00:09Z","type":"event_msg","payload":{"type":"context_compacted"}}
+{"timestamp":"2026-11-11T10:00:10Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"[[TERMINUS_HANDOFF:packet-123:BEGIN]]\nImported history\n[[TERMINUS_HANDOFF:packet-123:END]]\n\nPlease continue with the next task."}]}}
