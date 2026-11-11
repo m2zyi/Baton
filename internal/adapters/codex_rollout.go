@@ -117,6 +117,7 @@ func (a *codexAdapter) discoverRollouts(ctx context.Context, cwd string) ([]mode
 			Path:      path,
 			Title:     meta.Title,
 			UpdatedAt: info.ModTime(),
+			Backend:   BackendRollout,
 		}
 		if existing, ok := byID[session.ID]; !ok || session.UpdatedAt.After(existing.UpdatedAt) {
 			byID[session.ID] = session

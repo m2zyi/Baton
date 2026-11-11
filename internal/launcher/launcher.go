@@ -45,36 +45,51 @@ func (Process) Run(ctx context.Context, run NativeRun, stdin io.Reader, stdout, 
 	}
 	cmd := exec.CommandContext(ctx, run.Binary, run.Args...)
 	cmd.Dir = run.CWD
+	// Passing the original *os.File values straight through is essential. An
+	// exec.Cmd uses an *os.File directly (dup2), while any other io.Reader or
+	// io.Writer is serviced by a pipe. A buffered wrapper here would turn the
+	// native TUI's terminal into a pipe and break raw mode, so callers must
+	// hand Process the original files.
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	cmd.WaitDelay = 2 * time.Second
 	return cmd.Run()
+}
+
+func binaryFor(agent model.Agent, customBinary string) string {
+	if customBinary != "" {
+		return customBinary
+	}
+	switch agent {
+	case model.Codex:
+		if value := os.Getenv("TERMINUS_CODEX_BIN"); value != "" {
+			return value
+		}
+		return "codex"
+	case model.Claude:
+		if value := os.Getenv("TERMINUS_CLAUDE_BIN"); value != "" {
+			return value
+		}
+		return "claude"
+	default:
+		return ""
+	}
 }
 
 // NewSessionRun builds a first-launch command. Claude requires an explicit UUID.
 func NewSessionRun(agent model.Agent, sessionID, prompt, cwd, customBinary string) (NativeRun, error) {
-	if customBinary == "" {
-		switch agent {
-		case model.Codex:
-			customBinary = os.Getenv("TERMINUS_CODEX_BIN")
-		case model.Claude:
-			customBinary = os.Getenv("TERMINUS_CLAUDE_BIN")
-		}
-	}
 	switch agent {
 	case model.Codex:
 		if sessionID != "" {
 			return NativeRun{}, errors.New("codex first launch does not accept a native session ID")
 		}
-		if customBinary != "" {
-			return NativeRun{Agent: agent, Binary: customBinary, Args: []string{prompt}, CWD: cwd, Interactive: true}, nil
-		}
-		return NativeRun{Agent: agent, Binary: "codex", Args: []string{prompt}, CWD: cwd, Interactive: true}, nil
+		return NativeRun{Agent: agent, Binary: binaryFor(agent, customBinary), Args: []string{prompt}, CWD: cwd, Interactive: true}, nil
 	case model.Claude:
 		if sessionID == "" {
 			return NativeRun{}, errors.New("claude first launch requires an explicit UUID")
 		}
-		return NativeRun{Agent: agent, Binary: "claude", Args: []string{"--session-id", sessionID, prompt}, CWD: cwd, Interactive: true}, nil
+		return NativeRun{Agent: agent, Binary: binaryFor(agent, customBinary), Args: []string{"--session-id", sessionID, prompt}, CWD: cwd, Interactive: true}, nil
 	default:
 		return NativeRun{}, fmt.Errorf("unsupported native agent %q", agent)
 	}
@@ -85,19 +100,19 @@ func ResumeRun(agent model.Agent, sessionID, prompt, cwd, customBinary string) (
 	if sessionID == "" {
 		return NativeRun{}, errors.New("native resume requires a session ID")
 	}
-	if customBinary == "" {
-		switch agent {
-		case model.Codex:
-			customBinary = os.Getenv("TERMINUS_CODEX_BIN")
-		case model.Claude:
-			customBinary = os.Getenv("TERMINUS_CLAUDE_BIN")
-		}
-	}
 	switch agent {
 	case model.Codex:
-		return NativeRun{Agent: agent, Binary: customBinary, Args: []string{"resume", sessionID, prompt}, CWD: cwd, Interactive: true}, nil
+		args := []string{"resume", sessionID}
+		if prompt != "" {
+			args = append(args, prompt)
+		}
+		return NativeRun{Agent: agent, Binary: binaryFor(agent, customBinary), Args: args, CWD: cwd, Interactive: true}, nil
 	case model.Claude:
-		return NativeRun{Agent: agent, Binary: customBinary, Args: []string{"--resume", sessionID, prompt}, CWD: cwd, Interactive: true}, nil
+		args := []string{"--resume", sessionID}
+		if prompt != "" {
+			args = append(args, prompt)
+		}
+		return NativeRun{Agent: agent, Binary: binaryFor(agent, customBinary), Args: args, CWD: cwd, Interactive: true}, nil
 	default:
 		return NativeRun{}, fmt.Errorf("unsupported native agent %q", agent)
 	}

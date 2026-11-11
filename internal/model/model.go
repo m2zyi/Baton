@@ -17,6 +17,10 @@ type Session struct {
 	Path      string    `json:"path,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Backend identifies the native history transport that produced this
+	// session. Empty is a legacy manifest value; adapters may probe once and
+	// callers should persist the resolved value.
+	Backend string `json:"backend,omitempty"`
 }
 
 // Event.ID must be deterministic within an agent's native session.

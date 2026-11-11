@@ -1,9 +1,12 @@
 package adapters
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +20,9 @@ import (
 type claudeAdapter struct {
 	root string
 }
+
+// BackendJSONL is the native Claude transcript transport.
+const BackendJSONL = "jsonl"
 
 func newClaudeAdapter() *claudeAdapter {
 	return &claudeAdapter{root: envPath("CLAUDE_CONFIG_DIR", ".claude")}
@@ -72,6 +78,75 @@ type claudeTranscript struct {
 	Events    []model.Event
 }
 
+type claudeHeader struct {
+	CWD       string
+	SessionID string
+}
+
+func claudeProjectHint(cwd string) string {
+	cleaned := filepath.Clean(cwd)
+	var b strings.Builder
+	for _, r := range cleaned {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func claudePathMatchesProject(path, cwd string) bool {
+	dir := filepath.Base(filepath.Dir(path))
+	hint := claudeProjectHint(cwd)
+	return hint != "" && (dir == hint || dir == "-"+hint)
+}
+
+// readClaudeHeader scans a bounded prefix for enough metadata to attribute a
+// transcript to a cwd. It is deliberately tolerant of unrelated records: a
+// file outside the requested cwd must not make Discover fail merely because its
+// body contains a future or metadata-only record type. Full decoding and
+// corruption checks happen only after a file is attributed to the target cwd.
+func readClaudeHeader(path string) (claudeHeader, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return claudeHeader{}, err
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	var header claudeHeader
+	for lineNumber := 0; lineNumber < 512; lineNumber++ {
+		line, readErr := reader.ReadBytes('\n')
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) > 0 && json.Valid(trimmed) {
+			var record struct {
+				Type      string `json:"type"`
+				CWD       string `json:"cwd"`
+				SessionID string `json:"sessionId"`
+			}
+			if json.Unmarshal(trimmed, &record) == nil {
+				if header.CWD == "" && record.CWD != "" {
+					header.CWD = record.CWD
+				}
+				if header.SessionID == "" && record.SessionID != "" {
+					header.SessionID = record.SessionID
+				}
+				if header.CWD != "" && header.SessionID != "" {
+					return header, nil
+				}
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				return header, nil
+			}
+			return header, readErr
+		}
+	}
+	return header, nil
+}
+
 func (a *claudeAdapter) Discover(ctx context.Context, cwd string) ([]model.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -105,6 +180,26 @@ func (a *claudeAdapter) Discover(ctx context.Context, cwd string) ([]model.Sessi
 		if !strings.HasSuffix(entry.Name(), ".jsonl") {
 			return nil
 		}
+		if cwd != "" {
+			header, headerErr := readClaudeHeader(path)
+			if headerErr != nil {
+				return fmt.Errorf("read claude transcript header %s: %w", path, headerErr)
+			}
+			// Attribution comes from the transcript's own cwd, never from the
+			// project directory name or basename. Files that cannot be
+			// attributed are not part of the target cwd.
+			if header.CWD != "" && !sameDir(header.CWD, cwd) {
+				return nil
+			}
+			if header.CWD == "" {
+				// Metadata is unreadable. Only fall back to the project
+				// directory hint when it names the target, so a corrupt target
+				// transcript still surfaces its error instead of disappearing.
+				if !claudePathMatchesProject(path, cwd) {
+					return nil
+				}
+			}
+		}
 		transcript, err := parseClaudeTranscript(path)
 		if err != nil {
 			return fmt.Errorf("discover claude transcript %s: %w", path, err)
@@ -130,6 +225,7 @@ func (a *claudeAdapter) Discover(ctx context.Context, cwd string) ([]model.Sessi
 			Path:      path,
 			Title:     transcript.Title,
 			UpdatedAt: updated,
+			Backend:   BackendJSONL,
 		})
 		return nil
 	})
@@ -157,6 +253,9 @@ func (a *claudeAdapter) Read(ctx context.Context, s model.Session) ([]model.Even
 	}
 	if s.Path == "" {
 		return nil, fmt.Errorf("claude session %s has no transcript path", s.ID)
+	}
+	if s.Backend != "" && s.Backend != BackendJSONL {
+		return nil, fmt.Errorf("claude session %s has unsupported read backend %q", s.ID, s.Backend)
 	}
 	transcript, err := parseClaudeTranscript(s.Path)
 	if err != nil {
@@ -430,7 +529,7 @@ func buildClaudeTranscript(path string, records []claudeLine) (claudeTranscript,
 					})
 				}
 			}
-		case "system", "file-history-snapshot", "queue-operation", "progress", "last-prompt", "pr-link", "custom-title":
+		case "system", "file-history-snapshot", "queue-operation", "progress", "last-prompt", "pr-link", "custom-title", "api-request-blob":
 			continue
 		default:
 			if len(record.Message) > 0 {

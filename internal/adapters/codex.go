@@ -34,6 +34,13 @@ type codexAdapter struct {
 	timeout time.Duration
 }
 
+const (
+	// BackendAppServer reads Codex history through the read-only app-server
+	// JSON-RPC API. BackendRollout reads the older JSONL rollout files.
+	BackendAppServer = "app-server"
+	BackendRollout   = "rollout"
+)
+
 func newCodexAdapter() *codexAdapter {
 	return &codexAdapter{
 		bin:     envPath("TERMINUS_CODEX_BIN", ""),
@@ -70,20 +77,84 @@ func (a *codexAdapter) Read(ctx context.Context, s model.Session) ([]model.Event
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	switch s.Backend {
+	case BackendAppServer:
+		return a.readAppServer(ctx, s)
+	case BackendRollout:
+		if s.Path == "" {
+			return nil, fmt.Errorf("codex rollout session %s has no transcript path", s.ID)
+		}
+		return readCodexRollout(s)
+	case "":
+		// Legacy manifests have no backend. Probe app-server exactly as before,
+		// but only fall back when the server lacks the required capability and a
+		// rollout path is explicitly available.
+		events, err := a.readAppServer(ctx, s)
+		if err == nil {
+			return events, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if s.Path == "" || !canFallback(err) {
+			return nil, err
+		}
+		if _, statErr := os.Stat(s.Path); statErr != nil {
+			return nil, err
+		}
+		return readCodexRollout(s)
+	default:
+		return nil, fmt.Errorf("codex session %s has unsupported read backend %q", s.ID, s.Backend)
+	}
+}
+
+// ReadResolved reads a Codex session and reports the backend that actually
+// served the history. An empty Backend means discovery only knew that the
+// thread existed (for example thread/list succeeded), not that the app-server
+// history API is supported. Callers should persist the returned Backend so a
+// later read never silently changes transports.
+func (a *codexAdapter) ReadResolved(ctx context.Context, s model.Session) (model.Session, []model.Event, error) {
+	if s.Backend == BackendRollout {
+		// Rollout-backed sessions can continue in a newer JSONL file under the
+		// same native session ID. Follow that file, but never probe app-server
+		// or change the resolved transport.
+		if sessions, err := a.discoverRollouts(ctx, s.CWD); err == nil {
+			for _, candidate := range sessions {
+				if candidate.ID == s.ID {
+					s = candidate
+					break
+				}
+			}
+		}
+		events, err := a.Read(ctx, s)
+		return s, events, err
+	}
+	if s.Backend != "" {
+		events, err := a.Read(ctx, s)
+		return s, events, err
+	}
+	if err := ctx.Err(); err != nil {
+		return s, nil, err
+	}
 	events, err := a.readAppServer(ctx, s)
 	if err == nil {
-		return events, nil
+		s.Backend = BackendAppServer
+		return s, events, nil
 	}
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return s, nil, ctx.Err()
 	}
 	if s.Path == "" || !canFallback(err) {
-		return nil, err
+		return s, nil, err
 	}
 	if _, statErr := os.Stat(s.Path); statErr != nil {
-		return nil, err
+		return s, nil, err
 	}
-	return readCodexRollout(s)
+	events, err = readCodexRollout(s)
+	if err == nil {
+		s.Backend = BackendRollout
+	}
+	return s, events, err
 }
 
 func isUnsupportedRPC(err error) bool {
