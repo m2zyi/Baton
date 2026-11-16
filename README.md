@@ -1,43 +1,79 @@
-# Baton CLI
+# Baton
 
-Baton 在同一工作目录中串行继续一个逻辑对话，可在原生 Codex CLI 与 Claude Code CLI 之间切换。它不解析终端屏幕、不模拟按键、不启动后台监听，只负责：
+**Switch agents. Keep the conversation.**
 
-- 读取两个原生 CLI 的只读会话历史；
-- 生成带唯一回执标记的有界上下文包；
-- 直接启动原生进程并继承终端；
-- 在原生日志确认回执后绑定 session、导入新增内容并推进交付游标。
+Baton is a local CLI that lets you continue one conversation between **Codex CLI**
+and **Claude Code**, in the same working directory. Work with one agent, hand the
+conversation to the other, and return with the new context carried forward.
 
-首发支持 macOS 与 Linux。
+Baton reads native session history, prepares a bounded context package, and
+launches the original CLI directly in your terminal. It confirms each handoff
+against the destination's transcript before recording delivery.
 
-## 构建与安装
+Supports **macOS and Linux**.
+
+## Getting started
+
+### Requirements
+
+- Go 1.25 or later to build from source.
+- Codex CLI and Claude Code installed and authenticated for the agents you use.
+- An interactive terminal for native CLI sessions.
+
+Baton uses each CLI's existing authentication; no separate model API key is
+required by Baton.
+
+### Build and install
 
 ```sh
+git clone https://github.com/m2zyi/Baton.git
+cd Baton
 go build -o bin/baton ./cmd/baton
 ./bin/baton help
 ```
 
-将构建后的二进制放到 `PATH` 中（例如 `~/.local/bin/baton`），让目标 agent
-能运行交接包里的 `baton context <id>` 来读取完整历史。
-
-不需要模型 API key 即可导入、查看历史，或用伪 CLI 验证完整流程；真正对话沿用各 CLI 原有登录。
-
-## 数据目录与权限
-
-数据目录按以下顺序选择：
-
-1. `BATON_HOME`
-2. `$XDG_DATA_HOME/baton`
-3. `~/.local/share/baton`
-
-项目已从 Terminus 更名为 Baton，命令使用 `baton`，环境变量使用 `BATON_*`。默认数据目录也改为 `baton`，交接标记使用 `BATON_HANDOFF`。旧数据保留在原目录，本次不自动迁移。
-
-每个对话使用独立目录，`conversation.json` 原子替换，`events.jsonl` 追加写入。目录权限为 `0700`，文件权限为 `0600`。进程级锁在进程退出后释放，崩溃不会永久卡住对话。
-
-Baton 不修改 Codex/Claude 的全局配置、仓库规则或来源 transcript。
-
-## 命令
+Install the binary in a directory on your `PATH`, for example:
 
 ```sh
+mkdir -p ~/.local/bin
+install -m 755 bin/baton ~/.local/bin/baton
+```
+
+Make sure `~/.local/bin` is on your `PATH`. Agents need to be able to run
+`baton context <id>` to retrieve history that does not fit in a handoff package.
+
+### Start a conversation
+
+Run Baton from your project directory:
+
+```sh
+baton
+```
+
+The menu lets you create a Codex or Claude conversation, attach an existing native
+session in the current directory, or open a conversation already managed by
+Baton. After the native agent exits, you return to the menu to continue, switch
+agents, inspect context, or quit.
+
+You can also start directly:
+
+```sh
+baton start --agent codex --prompt "Explain this project's architecture."
+```
+
+Once the native session exits, hand it to Claude:
+
+```sh
+baton switch --to claude
+```
+
+If the directory has multiple managed conversations, Baton asks you to choose
+rather than silently selecting the most recent one. The menu shows conversation
+IDs, active agents, update times, and pending handoffs.
+
+## Commands
+
+```text
 baton
 baton start --agent codex|claude [--prompt TEXT]
 baton attach --agent codex|claude --session NATIVE_SESSION_ID
@@ -46,146 +82,91 @@ baton resume BATON_ID [--agent codex|claude]
 baton list [--json]
 baton context BATON_ID [--after N] [--limit N] [--json]
 baton doctor
-baton help | version
+baton help
+baton version
 ```
 
-ID 区别：
+There are two kinds of IDs:
 
-- `--session`、`--from` 是原生 CLI 的 session ID。
-- `--conversation`、`resume`、`context` 使用 32 位小写十六进制 Baton conversation ID。
+- **Native session IDs** belong to Codex or Claude. Use them with `--session` and
+  `--from`.
+- **Baton conversation IDs** are local, 32-character lowercase hexadecimal values.
+  Use them with `--conversation`, `resume`, and `context`.
 
-`resume` 与 `context` 的选项可以放在 ID 之后，例如：
+Options for `resume` and `context` may follow the conversation ID:
 
 ```sh
 baton context 0123abcd0123abcd0123abcd0123abcd --after 20 --limit 10 --json
 ```
 
-### 菜单
+Using `resume ID --agent claude` for a conversation currently active in Codex also
+supplies Claude with the context it has not received and updates the active agent.
 
-直接运行 `baton` 打开当前目录的菜单。即使还没有任何已管理对话，菜单也提供：
+## Configuration and local data
 
-- 新建 Codex/Claude 对话；
-- 接入当前目录已存在的原生会话；
-- 打开已有 Baton 对话；
-- 退出。
+| Variable | Purpose |
+| --- | --- |
+| `BATON_HOME` | Override Baton's data directory. |
+| `BATON_CODEX_BIN` | Override the Codex executable used by Baton. |
+| `BATON_CLAUDE_BIN` | Override the Claude executable used by Baton. |
+| `CODEX_HOME` | Locate Codex configuration and session history. |
+| `CLAUDE_CONFIG_DIR` | Locate Claude configuration and project history. |
 
-原生 agent 结束后返回菜单，可以继续同一 agent、切换 agent、查看上下文或退出。同一目录有多个对话时会列出 ID、agent、更新时间和 pending 状态供选择，不会静默选择“最近一个”。
+Baton chooses its data directory in this order:
 
-`resume ID --agent ...` 选择另一 agent 时也会补充它尚未收到的上下文，并更新活动
-agent。每次启动、恢复和切换从准备到原生进程结束、回执结算均持有对话锁；同一
-对话的另一个操作等待锁释放，等待可以随 context 取消。菜单展示期间不持锁。
+1. `BATON_HOME`
+2. `$XDG_DATA_HOME/baton`
+3. `~/.local/share/baton`
 
-## 交接协议
+Conversation history is stored locally. Directories use `0700` permissions and
+files use `0600`. Baton does not modify either agent's global configuration,
+repository rules, or source transcripts.
 
-每次切换生成 `Packet` 并先持久化为 `Pending`，然后启动目标 agent：
+## How handoffs work
 
-- 上下文包以 `[[BATON_HANDOFF:<packet-id>:BEGIN]]` 开始，以对应 `END` 标记结束。
-- 包内历史标记会被转义，避免自包含或假闭合。
-- 历史被明确标记为不可信引用数据；来源系统提示、推理和工具定义不会升级为目标指令。
-- 短对话全量注入；长对话按字节预算保留初始请求、近期内容和工具输出，并给出 `baton context <id>` 读取入口。截断按 UTF-8 字符边界进行。
+Baton reads the source session's history and passes a context package to the
+destination agent. Short conversations are included in full; longer ones retain
+the initial request and recent context, with `baton context <id>` available for
+retrieving the full history. Returning agents receive only the new context they
+have not already received.
 
-目标从未参与对话时，提供已有历史；目标已经参与时，从该目标 binding 的 `DeliveredThrough` 开始，只提供其他来源的新增事件。
+History is labeled as quoted data rather than new instructions. Baton confirms
+delivery against the destination transcript and keeps unfinished handoffs pending
+for retry. If delivery cannot be confirmed or is ambiguous, it reports an error.
 
-返回后，Baton 只认目标原生 transcript 中完整、配对的精确回执标记：
+Native agents run directly in your terminal, retaining their interface and
+keyboard shortcuts. Exit the native session to return to Baton and switch agents.
 
-- 找到唯一回执后，先导入目标新增事件，再把 `Packet.Through` 写入目标 binding 的 `DeliveredThrough`，最后清除 pending。
-- 目标进程退出非零但已写入回执时，仍会完成绑定与导入；后续操作不会重复发送该包。
-- 没有回执时保留 pending 和非零退出码；重试会先检查已有回执，只有确实缺失时才重发同一包。
-- 多个候选 session 含同一标记、回执不在已绑定 session 中、未知后端或适配器读取错误都会明确失败，不猜测。
-- `kind=handoff` 回执不会写入 journal，重复注入不会产生重复事件。
-
-新建模式的首条用户请求先以本地 provisional 事件持久化，并作为当前请求附在 `Prompt` 之后。目标 transcript 导入时只跳过与这条 provisional 请求对应的首个原生用户消息，因此首次请求不会因“双写”重复；后续真实重复请求仍会保留。
-
-### 原生启动命令
-
-```text
-codex PROMPT
-codex resume SESSION_ID PROMPT
-claude --session-id UUID PROMPT
-claude --resume SESSION_ID PROMPT
-```
-
-- 参数数组直接传给 `exec.Cmd`，不经过 shell。
-- 新 Codex 会话不带 session ID，返回后按唯一回执精确绑定。
-- 新 Claude 会话使用显式随机 UUID，返回后仍核对回执。
-- 恢复时使用对话 binding 中的原生 session ID 与对话 CWD。
-- `resume` 没有新提示词时不传空 prompt 参数。
-
-`BATON_CODEX_BIN` 与 `BATON_CLAUDE_BIN` 可覆盖实际可执行文件路径；只影响 Baton 启动与只读适配器，不修改用户配置。
-
-## 原生终端继承
-
-Baton 将原始的 stdin/stdout/stderr 直接交给 `exec.Cmd`。当它们是 `*os.File` 时，子进程获得同一文件描述符（dup2），而不是 Baton 建立的 pipe，因此原生 TUI 的 raw mode、窗口大小和快捷键保持有效。
-
-菜单每次都从原 reader 逐字节读取到换行，不使用持久 `bufio.Reader` 预读，避免吃掉随后要交给 native 的输入。取消 context 会终止前台子进程；正常退出后返回菜单。
-
-单独向 Baton 父进程发送 `SIGTERM` 时，会取消前台子进程并等待清理，再以
-`143` 退出。若正在等待菜单输入，退出等待最多三秒；未完成交接保留 pending。
-
-## 只读后端
-
-Codex：
-
-- 优先使用 `codex app-server` 的 `thread/list`、`thread/read`、`thread/items/list` 或 `thread/turns/list`（`itemsView=full`）。
-- 能力不支持时回退到 `$CODEX_HOME/sessions` 下的 JSONL rollout。
-- 首次成功读取后，实际后端写入 `model.Session.Backend`（`app-server` 或 `rollout`）。已绑定 session 不会在后续读取中静默切换后端。
-- rollout 会话在同一 native session ID 出现更新文件时会跟随新的 JSONL 路径，但仍固定使用 rollout 后端。
-- 旧 manifest 没有 `Backend` 时仍可读取：会探测一次并保持兼容。
-
-Claude：
-
-- 读取 `$CLAUDE_CONFIG_DIR/projects` 下的 JSONL，保留父子链、分支选择和压缩摘要。
-- 只完整解析 transcript 自身 `cwd` 与目标目录一致的会话。无关 cwd 的损坏或非对话 metadata 不会阻塞目标目录；目标会话自身的截断/损坏仍会报错。
-- `api-request-blob` 等已知非对话 metadata 记录被归类忽略；未知且带对话 message 的记录类型会明确报错。
-
-两个适配器都保留稳定事件 ID，区分同一记录中的多个 text/tool block，过滤系统/开发者指令、推理和非对话噪声，并只读取、不写入原生日志。
-
-## doctor
-
-`baton doctor` 实际检查：
-
-- 数据目录可创建、可写，是目录，并能创建 `0600` 写探针；过宽的目录权限会被收紧到 `0700`。
-- Codex 与 Claude 可执行文件可解析（含 `BATON_*_BIN` 覆盖）。
-
-任一检查失败时返回非零。
-
-## 当前边界
-
-- 只支持单逻辑对话；不做长期记忆、跨机器同步、全局索引、向量检索、MCP 或后台服务。
-- 不自动杀其他 native 进程，不解析屏幕，不模拟按键。
-- 同一 Codex binding 不会在 app-server 与 rollout 之间静默切换；如需切换后端，需要建立新绑定。
-- 部分旧日志或多 text block 的原生 ID 可能无法跨后端迁移；已绑定后固定后端避免混用。
-- 来源 transcript 的中间损坏、未知对话格式、回执候选不唯一都会阻止导入，不会为了“能用”而吞掉错误。
-
-## 测试
+## Diagnostics
 
 ```sh
-gofmt -w $(find . -name '*.go' -not -path './.git/*')
+baton doctor
+```
+
+This checks that Baton's data directory is writable and that the Codex and
+Claude executables can be found, including any `BATON_*_BIN` overrides. A failed
+check returns a nonzero exit code.
+
+## Limitations
+
+- Conversations are local to a working directory; cross-machine synchronization
+  and shared long-term memory are not supported.
+- Baton relies on native CLI history formats. Unsupported or corrupt transcripts
+  produce an error.
+- A Codex session binding uses a fixed history backend. Switching between
+  app-server and rollout history requires a new binding.
+
+## Development and testing
+
+```sh
+gofmt -w cmd internal
 go vet ./...
 go test ./...
 go test -race ./...
-go build ./cmd/baton
-python3 scripts/smoke_pty.py ./bin/baton  # 先构建到 bin/baton；可选 Python 3 检查
+go build -o bin/baton ./cmd/baton
+python3 scripts/smoke_pty.py ./bin/baton
 ```
 
-集成测试使用 Go 测试 helper 作为伪 Codex/Claude 可执行文件，写入合成 transcript，并驱动真实 `internal/adapters`、`internal/store` 与 `internal/handoff`。覆盖：
-
-- Codex→Claude→Codex→Claude 多次往返（以及从 Claude 起步的往返）；
-- 原生 resume ID、CWD 与增量内容；
-- 首次请求、工具输出和用户消息唯一性；
-- 新建、菜单新建、菜单接入、空列表菜单；
-- pending 恢复、非零退出但回执已保存、无回执重发、多候选拒绝；
-- 来源 transcript 未被 Baton 改写；
-- `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`BATON_HOME` 完全隔离。
-
-独立回归还覆盖：显式恢复另一 agent 的活动标记、持锁时禁止启动第二个 native
-进程、锁等待取消、父进程收到 SIGTERM 后 native 子进程退出，以及菜单等待时终止。
-
-独立验收的合成 PTY smoke 已确认 fake native 的三个标准流都是 TTY，能进入
-raw mode、读取单字节，并在退出后回到 Baton 菜单。此项使用合成进程，
-尚未验证真实 Codex/Claude 模型对话和首次 app-server 索引时序。
-
-本次交付的验证记录见 [docs/validation.md](docs/validation.md)，原始实现计划见
-[docs/implementation-plan.md](docs/implementation-plan.md)。
-
-测试不会运行真实模型，也不会读取用户私有会话。
+The optional PTY smoke test requires Python 3. Tests use synthetic native CLIs
+and isolated data directories; they do not invoke real models or read private
+user sessions.
