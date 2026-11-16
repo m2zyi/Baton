@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 type rolloutEnvelope struct {

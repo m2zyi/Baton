@@ -12,35 +12,35 @@ func TestSplitHandoffReceipt(t *testing.T) {
 	}{
 		{
 			name:   "complete root package",
-			input:  "[[TERMINUS_HANDOFF:abc-123:BEGIN]]\nhistory\n[[TERMINUS_HANDOFF:abc-123:END]]",
+			input:  "[[BATON_HANDOFF:abc-123:BEGIN]]\nhistory\n[[BATON_HANDOFF:abc-123:END]]",
 			wantOK: true,
 			wantID: "abc-123",
 		},
 		{
 			name:     "complete package then user request",
-			input:    "[[TERMINUS_HANDOFF:abc-123:BEGIN]]\nhistory\n[[TERMINUS_HANDOFF:abc-123:END]]\n\ncontinue please",
+			input:    "[[BATON_HANDOFF:abc-123:BEGIN]]\nhistory\n[[BATON_HANDOFF:abc-123:END]]\n\ncontinue please",
 			wantOK:   true,
 			wantID:   "abc-123",
 			wantRest: "continue please",
 		},
 		{
 			name:   "marker mentioned in prose is not a receipt",
-			input:  "The old message said [[TERMINUS_HANDOFF:abc-123:BEGIN]] and later [[TERMINUS_HANDOFF:abc-123:END]].",
+			input:  "The old message said [[BATON_HANDOFF:abc-123:BEGIN]] and later [[BATON_HANDOFF:abc-123:END]].",
 			wantOK: false,
 		},
 		{
 			name:   "unpaired begin",
-			input:  "[[TERMINUS_HANDOFF:abc-123:BEGIN]]\nhistory",
+			input:  "[[BATON_HANDOFF:abc-123:BEGIN]]\nhistory",
 			wantOK: false,
 		},
 		{
 			name:   "mismatched end",
-			input:  "[[TERMINUS_HANDOFF:abc-123:BEGIN]]\nhistory\n[[TERMINUS_HANDOFF:other:END]]",
+			input:  "[[BATON_HANDOFF:abc-123:BEGIN]]\nhistory\n[[BATON_HANDOFF:other:END]]",
 			wantOK: false,
 		},
 		{
 			name:   "leading text prevents root match",
-			input:  "prefix [[TERMINUS_HANDOFF:abc-123:BEGIN]]\nhistory\n[[TERMINUS_HANDOFF:abc-123:END]]",
+			input:  "prefix [[BATON_HANDOFF:abc-123:BEGIN]]\nhistory\n[[BATON_HANDOFF:abc-123:END]]",
 			wantOK: false,
 		},
 	}
@@ -67,10 +67,10 @@ func TestSplitHandoffReceipt(t *testing.T) {
 }
 
 func TestIsHandoffReceiptRequiresNoTrailingRequest(t *testing.T) {
-	if !IsHandoffReceipt("[[TERMINUS_HANDOFF:p1:BEGIN]]\nx\n[[TERMINUS_HANDOFF:p1:END]]") {
+	if !IsHandoffReceipt("[[BATON_HANDOFF:p1:BEGIN]]\nx\n[[BATON_HANDOFF:p1:END]]") {
 		t.Fatal("complete package should be a receipt")
 	}
-	if IsHandoffReceipt("[[TERMINUS_HANDOFF:p1:BEGIN]]\nx\n[[TERMINUS_HANDOFF:p1:END]]\nreal user request") {
+	if IsHandoffReceipt("[[BATON_HANDOFF:p1:BEGIN]]\nx\n[[BATON_HANDOFF:p1:END]]\nreal user request") {
 		t.Fatal("package with a following request is not a pure receipt")
 	}
 }

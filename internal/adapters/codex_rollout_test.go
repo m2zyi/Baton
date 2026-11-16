@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func fallbackCodexAdapter(t *testing.T) *codexAdapter {
@@ -21,7 +21,7 @@ func fallbackCodexAdapter(t *testing.T) *codexAdapter {
 
 func TestCodexRolloutFallbackDiscovery(t *testing.T) {
 	adapter := fallbackCodexAdapter(t)
-	sessions, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	sessions, err := adapter.Discover(context.Background(), "/tmp/baton-test/project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestCodexRolloutFallbackDiscovery(t *testing.T) {
 		t.Fatalf("unexpected session: %#v", sessions[0])
 	}
 
-	other, err := adapter.Discover(context.Background(), "/tmp/terminus-other/project")
+	other, err := adapter.Discover(context.Background(), "/tmp/baton-other/project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestCodexRolloutFallbackDiscovery(t *testing.T) {
 
 func TestCodexRolloutReadDeduplicatesAndFilters(t *testing.T) {
 	adapter := fallbackCodexAdapter(t)
-	sessions, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	sessions, err := adapter.Discover(context.Background(), "/tmp/baton-test/project")
 	if err != nil || len(sessions) != 1 {
 		t.Fatalf("discover: %v, %#v", err, sessions)
 	}
@@ -64,7 +64,7 @@ func TestCodexRolloutReadDeduplicatesAndFilters(t *testing.T) {
 		{"tool", "tool", "shell"},
 		{"tool", "tool", "hi"},
 		{"summary", "assistant", "Earlier summary"},
-		{"handoff", "user", "[[TERMINUS_HANDOFF:packet-123:BEGIN]]"},
+		{"handoff", "user", "[[BATON_HANDOFF:packet-123:BEGIN]]"},
 		{"message", "user", "Please continue with the next task."},
 	}
 	for index, expectation := range want {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func TestJournalAndPermissions(t *testing.T) {
@@ -60,9 +60,9 @@ func TestJournalAndPermissions(t *testing.T) {
 	}
 }
 func TestLockReleasedOnProcessExit(t *testing.T) {
-	if os.Getenv("TERMINUS_LOCK_CHILD") == "1" {
-		s := New(os.Getenv("TERMINUS_TEST_ROOT"))
-		err := s.WithLock(os.Getenv("TERMINUS_TEST_ID"), func() error { os.Exit(0); return nil })
+	if os.Getenv("BATON_LOCK_CHILD") == "1" {
+		s := New(os.Getenv("BATON_TEST_ROOT"))
+		err := s.WithLock(os.Getenv("BATON_TEST_ID"), func() error { os.Exit(0); return nil })
 		if err != nil {
 			os.Exit(2)
 		}
@@ -75,7 +75,7 @@ func TestLockReleasedOnProcessExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestLockReleasedOnProcessExit$")
-	cmd.Env = append(os.Environ(), "TERMINUS_LOCK_CHILD=1", "TERMINUS_TEST_ROOT="+root, "TERMINUS_TEST_ID="+c.ID)
+	cmd.Env = append(os.Environ(), "BATON_LOCK_CHILD=1", "BATON_TEST_ROOT="+root, "BATON_TEST_ID="+c.ID)
 	if err = cmd.Run(); err != nil {
 		t.Fatal(err)
 	}

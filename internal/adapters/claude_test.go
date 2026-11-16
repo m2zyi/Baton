@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func claudeFixtureAdapter(t *testing.T) *claudeAdapter {
@@ -18,7 +18,7 @@ func claudeFixtureAdapter(t *testing.T) *claudeAdapter {
 
 func TestClaudeActiveBranchBlocksAndSummary(t *testing.T) {
 	adapter := claudeFixtureAdapter(t)
-	sessions, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	sessions, err := adapter.Discover(context.Background(), "/tmp/baton-test/project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestClaudeActiveBranchBlocksAndSummary(t *testing.T) {
 		{"tool", "tool", "package main"},
 		{"message", "user", "after tool"},
 		{"message", "assistant", "active answer"},
-		{"handoff", "user", "[[TERMINUS_HANDOFF:packet-claude:BEGIN]]"},
+		{"handoff", "user", "[[BATON_HANDOFF:packet-claude:BEGIN]]"},
 		{"message", "user", "Continue in Claude."},
 	}
 	if len(events) != len(want) {

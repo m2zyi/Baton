@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-func TestTerminusMainHelper(t *testing.T) {
-	mode := os.Getenv("TERMINUS_MAIN_HELPER")
+func TestBatonMainHelper(t *testing.T) {
+	mode := os.Getenv("BATON_MAIN_HELPER")
 	if mode == "" {
 		return
 	}
-	os.Args = []string{"terminus"}
+	os.Args = []string{"baton"}
 	if mode == "native" {
 		os.Args = append(os.Args, "start", "--agent", "claude", "--prompt", "synthetic lifecycle test")
 	}
@@ -68,13 +68,13 @@ func mainHelper(t *testing.T, mode string) (*exec.Cmd, *bufio.Reader) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	t.Cleanup(cancel)
-	cmd := exec.CommandContext(ctx, exe, "-test.run=^TestTerminusMainHelper$")
+	cmd := exec.CommandContext(ctx, exe, "-test.run=^TestBatonMainHelper$")
 	cmd.Env = append(os.Environ(),
-		"TERMINUS_MAIN_HELPER="+mode,
-		"TERMINUS_HOME="+filepath.Join(dir, "data"),
+		"BATON_MAIN_HELPER="+mode,
+		"BATON_HOME="+filepath.Join(dir, "data"),
 		"CLAUDE_CONFIG_DIR="+filepath.Join(dir, "claude"),
 		"CODEX_HOME="+filepath.Join(dir, "codex"),
-		"TERMINUS_CLAUDE_BIN="+fake,
+		"BATON_CLAUDE_BIN="+fake,
 	)
 	cmd.Dir = dir
 	stdin, err := cmd.StdinPipe()

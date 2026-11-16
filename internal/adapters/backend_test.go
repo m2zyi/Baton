@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func codexRolloutFixturePath() string {
@@ -50,7 +50,7 @@ func TestCodexReadResolvedPinsRollout(t *testing.T) {
 
 func TestCodexReadResolvedPinsAppServer(t *testing.T) {
 	adapter, _ := fakeCodexAdapter(t, "items")
-	session := model.Session{ID: "fake-thread-1", Agent: model.Codex, CWD: "/tmp/terminus-test/project"}
+	session := model.Session{ID: "fake-thread-1", Agent: model.Codex, CWD: "/tmp/baton-test/project"}
 	resolved, events, err := adapter.ReadResolved(context.Background(), session)
 	if err != nil {
 		t.Fatal(err)

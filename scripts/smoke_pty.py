@@ -47,19 +47,19 @@ print("NATIVE_DONE", flush=True)
 
 
 def main():
-    binary = Path(sys.argv[1] if len(sys.argv) > 1 else "bin/terminus").resolve()
+    binary = Path(sys.argv[1] if len(sys.argv) > 1 else "bin/baton").resolve()
     if not binary.is_file():
-        raise SystemExit("Build first: go build -o bin/terminus ./cmd/terminus")
-    with tempfile.TemporaryDirectory(prefix="terminus-pty-") as temporary:
+        raise SystemExit("Build first: go build -o bin/baton ./cmd/baton")
+    with tempfile.TemporaryDirectory(prefix="baton-pty-") as temporary:
         root = Path(temporary)
         fake = root / "fake-claude"
         fake.write_text("#!" + sys.executable + "\n" + FAKE_CLAUDE)
         fake.chmod(0o700)
-        environment = dict(os.environ, TERMINUS_HOME=str(root / "data"),
+        environment = dict(os.environ, BATON_HOME=str(root / "data"),
                            CLAUDE_CONFIG_DIR=str(root / "claude"),
                            CODEX_HOME=str(root / "codex"),
-                           TERMINUS_CLAUDE_BIN=str(fake),
-                           TERMINUS_CODEX_BIN=str(root / "unused-codex"))
+                           BATON_CLAUDE_BIN=str(fake),
+                           BATON_CODEX_BIN=str(root / "unused-codex"))
         pid, terminal = pty.fork()
         if pid == 0:
             os.chdir(root)

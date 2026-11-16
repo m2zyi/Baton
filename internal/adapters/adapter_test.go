@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func TestNew(t *testing.T) {

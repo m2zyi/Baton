@@ -112,8 +112,8 @@ func (c *rpcClient) readLoop(stdout io.Reader) {
 func (c *rpcClient) initialize(ctx context.Context) error {
 	params := map[string]any{
 		"clientInfo": map[string]any{
-			"name":    "terminus",
-			"title":   "Terminus",
+			"name":    "baton",
+			"title":   "Baton",
 			"version": "0.1.0",
 		},
 	}
@@ -184,7 +184,7 @@ func (c *rpcClient) call(ctx context.Context, method string, params any) (json.R
 					// Read-only history does not handle server approval or
 					// elicitation requests. Refuse rather than leaving the server
 					// waiting for a response.
-					_ = c.replyError(message.ID, -32601, "terminus read-only adapter does not support "+message.Method)
+					_ = c.replyError(message.ID, -32601, "baton read-only adapter does not support "+message.Method)
 				}
 				continue
 			}

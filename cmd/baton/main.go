@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"terminus/internal/cli"
+	"baton/internal/cli"
 )
 
 func main() {

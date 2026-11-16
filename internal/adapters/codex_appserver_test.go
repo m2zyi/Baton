@@ -13,19 +13,19 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
-const fakeHandoff = "[[TERMINUS_HANDOFF:packet-appserver:BEGIN]]\nImported from Codex\n[[TERMINUS_HANDOFF:packet-appserver:END]]"
+const fakeHandoff = "[[BATON_HANDOFF:packet-appserver:BEGIN]]\nImported from Codex\n[[BATON_HANDOFF:packet-appserver:END]]"
 
 func TestFakeCodexServer(t *testing.T) {
-	if os.Getenv("TERMINUS_FAKE_CODEX") != "1" {
+	if os.Getenv("BATON_FAKE_CODEX") != "1" {
 		return
 	}
-	if pidFile := os.Getenv("TERMINUS_FAKE_CODEX_PID_FILE"); pidFile != "" {
+	if pidFile := os.Getenv("BATON_FAKE_CODEX_PID_FILE"); pidFile != "" {
 		_ = os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o600)
 	}
-	runFakeCodexServer(os.Stdin, os.Stdout, os.Getenv("TERMINUS_FAKE_CODEX_MODE"))
+	runFakeCodexServer(os.Stdin, os.Stdout, os.Getenv("BATON_FAKE_CODEX_MODE"))
 	os.Exit(0)
 }
 
@@ -42,11 +42,11 @@ func runFakeCodexServer(in *os.File, out *os.File, mode string) {
 	send := func(value any) {
 		_ = encoder.Encode(value)
 	}
-	cwd := os.Getenv("TERMINUS_FAKE_CODEX_CWD")
+	cwd := os.Getenv("BATON_FAKE_CODEX_CWD")
 	if cwd == "" {
-		cwd = "/tmp/terminus-test/project"
+		cwd = "/tmp/baton-test/project"
 	}
-	threadPath := os.Getenv("TERMINUS_FAKE_CODEX_THREAD_PATH")
+	threadPath := os.Getenv("BATON_FAKE_CODEX_THREAD_PATH")
 	if threadPath == "" {
 		threadPath = filepath.Join(cwd, "rollout.jsonl")
 	}
@@ -243,9 +243,9 @@ func fakeCodexAdapter(t *testing.T, mode string) (*codexAdapter, string) {
 	if err := os.WriteFile(script, []byte(content), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TERMINUS_FAKE_CODEX", "1")
-	t.Setenv("TERMINUS_FAKE_CODEX_MODE", mode)
-	t.Setenv("TERMINUS_FAKE_CODEX_CWD", "/tmp/terminus-test/project")
+	t.Setenv("BATON_FAKE_CODEX", "1")
+	t.Setenv("BATON_FAKE_CODEX_MODE", mode)
+	t.Setenv("BATON_FAKE_CODEX_CWD", "/tmp/baton-test/project")
 	adapter := newCodexAdapter()
 	adapter.bin = script
 	adapter.timeout = 2 * time.Second
@@ -254,7 +254,7 @@ func fakeCodexAdapter(t *testing.T, mode string) (*codexAdapter, string) {
 
 func TestCodexAppServerDiscoverFiltersExactCWD(t *testing.T) {
 	adapter, _ := fakeCodexAdapter(t, "items")
-	sessions, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	sessions, err := adapter.Discover(context.Background(), "/tmp/baton-test/project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestCodexAppServerDiscoverFiltersExactCWD(t *testing.T) {
 
 func TestCodexAppServerPaginatedItemsAndHandoffSplit(t *testing.T) {
 	adapter, _ := fakeCodexAdapter(t, "items")
-	session := modelSession("fake-thread-1", "/tmp/terminus-test/project")
+	session := modelSession("fake-thread-1", "/tmp/baton-test/project")
 	events, err := adapter.Read(context.Background(), session)
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestCodexAppServerPaginatedItemsAndHandoffSplit(t *testing.T) {
 
 func TestCodexAppServerDiscoverPaginatesExplicitly(t *testing.T) {
 	adapter, _ := fakeCodexAdapter(t, "pages")
-	_, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	_, err := adapter.Discover(context.Background(), "/tmp/baton-test/project")
 	if err == nil || !strings.Contains(err.Error(), "exceeded 1000 pages") {
 		t.Fatalf("error = %v, want explicit pagination limit failure", err)
 	}
@@ -301,7 +301,7 @@ func TestCodexAppServerDiscoverPaginatesExplicitly(t *testing.T) {
 
 func TestCodexAppServerTurnsFallbackUsesFullItems(t *testing.T) {
 	adapter, _ := fakeCodexAdapter(t, "turns")
-	events, err := adapter.Read(context.Background(), modelSession("fake-thread-1", "/tmp/terminus-test/project"))
+	events, err := adapter.Read(context.Background(), modelSession("fake-thread-1", "/tmp/baton-test/project"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,8 +310,8 @@ func TestCodexAppServerTurnsFallbackUsesFullItems(t *testing.T) {
 
 func TestCodexAppServerCapabilityFailureFallsBackToRollout(t *testing.T) {
 	adapter, _ := fakeCodexAdapter(t, "legacy")
-	t.Setenv("TERMINUS_FAKE_CODEX_THREAD_PATH", filepath.Join("testdata", "codex-home", "sessions", "2026", "11", "11", "rollout-2026-11-11T10-00-00-codex-session-1.jsonl"))
-	sessions, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	t.Setenv("BATON_FAKE_CODEX_THREAD_PATH", filepath.Join("testdata", "codex-home", "sessions", "2026", "11", "11", "rollout-2026-11-11T10-00-00-codex-session-1.jsonl"))
+	sessions, err := adapter.Discover(context.Background(), "/tmp/baton-test/project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,10 +362,10 @@ func TestCodexAppServerTimeoutCleansUpProcess(t *testing.T) {
 	adapter, dir := fakeCodexAdapter(t, "hang")
 	adapter.timeout = 200 * time.Millisecond
 	pidFile := filepath.Join(dir, "server.pid")
-	t.Setenv("TERMINUS_FAKE_CODEX_PID_FILE", pidFile)
+	t.Setenv("BATON_FAKE_CODEX_PID_FILE", pidFile)
 
 	start := time.Now()
-	_, err := adapter.Discover(context.Background(), "/tmp/terminus-test/project")
+	_, err := adapter.Discover(context.Background(), "/tmp/baton-test/project")
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}

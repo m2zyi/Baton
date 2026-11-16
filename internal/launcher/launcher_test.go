@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func TestNewRunCommands(t *testing.T) {
@@ -79,7 +79,7 @@ func TestProcessRunsDirectlyWithCWDAndStdio(t *testing.T) {
 }
 
 func TestStdinFileIdentityHelper(t *testing.T) {
-	if os.Getenv("TERMINUS_STDIN_IDENTITY") != "1" {
+	if os.Getenv("BATON_STDIN_IDENTITY") != "1" {
 		return
 	}
 	var stat syscall.Stat_t
@@ -113,7 +113,7 @@ func TestProcessInheritsOriginalStdinFile(t *testing.T) {
 	}
 	parent := info.Sys().(*syscall.Stat_t)
 
-	t.Setenv("TERMINUS_STDIN_IDENTITY", "1")
+	t.Setenv("BATON_STDIN_IDENTITY", "1")
 	run := NativeRun{Agent: model.Codex, Binary: executable, Args: []string{"-test.run=^TestStdinFileIdentityHelper$"}, CWD: t.TempDir(), Interactive: true}
 	var out, errOut strings.Builder
 	if err := (Process{}).Run(context.Background(), run, stdin, &out, &errOut); err != nil {
@@ -154,8 +154,8 @@ func TestProcessPassesArgumentArrayWithoutShell(t *testing.T) {
 }
 
 func TestRunCommandBinariesAndEmptyResumePrompt(t *testing.T) {
-	t.Setenv("TERMINUS_CODEX_BIN", "")
-	t.Setenv("TERMINUS_CLAUDE_BIN", "")
+	t.Setenv("BATON_CODEX_BIN", "")
+	t.Setenv("BATON_CLAUDE_BIN", "")
 	codex, err := NewSessionRun(model.Codex, "", "PROMPT", "/tmp", "")
 	if err != nil || codex.Binary != "codex" || len(codex.Args) != 1 || codex.Args[0] != "PROMPT" {
 		t.Fatalf("codex new = %#v, %v", codex, err)

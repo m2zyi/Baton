@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 const CommandTimeout = 5 * time.Second
@@ -63,12 +63,12 @@ func binaryFor(agent model.Agent, customBinary string) string {
 	}
 	switch agent {
 	case model.Codex:
-		if value := os.Getenv("TERMINUS_CODEX_BIN"); value != "" {
+		if value := os.Getenv("BATON_CODEX_BIN"); value != "" {
 			return value
 		}
 		return "codex"
 	case model.Claude:
-		if value := os.Getenv("TERMINUS_CLAUDE_BIN"); value != "" {
+		if value := os.Getenv("BATON_CLAUDE_BIN"); value != "" {
 			return value
 		}
 		return "claude"

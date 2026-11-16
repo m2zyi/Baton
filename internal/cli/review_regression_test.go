@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/launcher"
-	"terminus/internal/model"
+	"baton/internal/launcher"
+	"baton/internal/model"
 )
 
 type reviewRunner struct{ entered, release chan struct{} }

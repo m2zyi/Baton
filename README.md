@@ -1,6 +1,6 @@
-# Terminus CLI
+# Baton CLI
 
-Terminus 在同一工作目录中串行继续一个逻辑对话，可在原生 Codex CLI 与 Claude Code CLI 之间切换。它不解析终端屏幕、不模拟按键、不启动后台监听，只负责：
+Baton 在同一工作目录中串行继续一个逻辑对话，可在原生 Codex CLI 与 Claude Code CLI 之间切换。它不解析终端屏幕、不模拟按键、不启动后台监听，只负责：
 
 - 读取两个原生 CLI 的只读会话历史；
 - 生成带唯一回执标记的有界上下文包；
@@ -12,12 +12,12 @@ Terminus 在同一工作目录中串行继续一个逻辑对话，可在原生 C
 ## 构建与安装
 
 ```sh
-go build -o terminus ./cmd/terminus
-./terminus help
+go build -o bin/baton ./cmd/baton
+./bin/baton help
 ```
 
-将构建后的二进制放到 `PATH` 中（例如 `~/.local/bin/terminus`），让目标 agent
-能运行交接包里的 `terminus context <id>` 来读取完整历史。
+将构建后的二进制放到 `PATH` 中（例如 `~/.local/bin/baton`），让目标 agent
+能运行交接包里的 `baton context <id>` 来读取完整历史。
 
 不需要模型 API key 即可导入、查看历史，或用伪 CLI 验证完整流程；真正对话沿用各 CLI 原有登录。
 
@@ -25,46 +25,48 @@ go build -o terminus ./cmd/terminus
 
 数据目录按以下顺序选择：
 
-1. `TERMINUS_HOME`
-2. `$XDG_DATA_HOME/terminus`
-3. `~/.local/share/terminus`
+1. `BATON_HOME`
+2. `$XDG_DATA_HOME/baton`
+3. `~/.local/share/baton`
+
+项目已从 Terminus 更名为 Baton，命令使用 `baton`，环境变量使用 `BATON_*`。默认数据目录也改为 `baton`，交接标记使用 `BATON_HANDOFF`。旧数据保留在原目录，本次不自动迁移。
 
 每个对话使用独立目录，`conversation.json` 原子替换，`events.jsonl` 追加写入。目录权限为 `0700`，文件权限为 `0600`。进程级锁在进程退出后释放，崩溃不会永久卡住对话。
 
-Terminus 不修改 Codex/Claude 的全局配置、仓库规则或来源 transcript。
+Baton 不修改 Codex/Claude 的全局配置、仓库规则或来源 transcript。
 
 ## 命令
 
 ```sh
-terminus
-terminus start --agent codex|claude [--prompt TEXT]
-terminus attach --agent codex|claude --session NATIVE_SESSION_ID
-terminus switch --to codex|claude [--conversation TERMINUS_ID] [--from NATIVE_SESSION_ID]
-terminus resume TERMINUS_ID [--agent codex|claude]
-terminus list [--json]
-terminus context TERMINUS_ID [--after N] [--limit N] [--json]
-terminus doctor
-terminus help | version
+baton
+baton start --agent codex|claude [--prompt TEXT]
+baton attach --agent codex|claude --session NATIVE_SESSION_ID
+baton switch --to codex|claude [--conversation BATON_ID] [--from NATIVE_SESSION_ID]
+baton resume BATON_ID [--agent codex|claude]
+baton list [--json]
+baton context BATON_ID [--after N] [--limit N] [--json]
+baton doctor
+baton help | version
 ```
 
 ID 区别：
 
 - `--session`、`--from` 是原生 CLI 的 session ID。
-- `--conversation`、`resume`、`context` 使用 32 位小写十六进制 Terminus conversation ID。
+- `--conversation`、`resume`、`context` 使用 32 位小写十六进制 Baton conversation ID。
 
 `resume` 与 `context` 的选项可以放在 ID 之后，例如：
 
 ```sh
-terminus context 0123abcd0123abcd0123abcd0123abcd --after 20 --limit 10 --json
+baton context 0123abcd0123abcd0123abcd0123abcd --after 20 --limit 10 --json
 ```
 
 ### 菜单
 
-直接运行 `terminus` 打开当前目录的菜单。即使还没有任何已管理对话，菜单也提供：
+直接运行 `baton` 打开当前目录的菜单。即使还没有任何已管理对话，菜单也提供：
 
 - 新建 Codex/Claude 对话；
 - 接入当前目录已存在的原生会话；
-- 打开已有 Terminus 对话；
+- 打开已有 Baton 对话；
 - 退出。
 
 原生 agent 结束后返回菜单，可以继续同一 agent、切换 agent、查看上下文或退出。同一目录有多个对话时会列出 ID、agent、更新时间和 pending 状态供选择，不会静默选择“最近一个”。
@@ -77,14 +79,14 @@ agent。每次启动、恢复和切换从准备到原生进程结束、回执结
 
 每次切换生成 `Packet` 并先持久化为 `Pending`，然后启动目标 agent：
 
-- 上下文包以 `[[TERMINUS_HANDOFF:<packet-id>:BEGIN]]` 开始，以对应 `END` 标记结束。
+- 上下文包以 `[[BATON_HANDOFF:<packet-id>:BEGIN]]` 开始，以对应 `END` 标记结束。
 - 包内历史标记会被转义，避免自包含或假闭合。
 - 历史被明确标记为不可信引用数据；来源系统提示、推理和工具定义不会升级为目标指令。
-- 短对话全量注入；长对话按字节预算保留初始请求、近期内容和工具输出，并给出 `terminus context <id>` 读取入口。截断按 UTF-8 字符边界进行。
+- 短对话全量注入；长对话按字节预算保留初始请求、近期内容和工具输出，并给出 `baton context <id>` 读取入口。截断按 UTF-8 字符边界进行。
 
 目标从未参与对话时，提供已有历史；目标已经参与时，从该目标 binding 的 `DeliveredThrough` 开始，只提供其他来源的新增事件。
 
-返回后，Terminus 只认目标原生 transcript 中完整、配对的精确回执标记：
+返回后，Baton 只认目标原生 transcript 中完整、配对的精确回执标记：
 
 - 找到唯一回执后，先导入目标新增事件，再把 `Packet.Through` 写入目标 binding 的 `DeliveredThrough`，最后清除 pending。
 - 目标进程退出非零但已写入回执时，仍会完成绑定与导入；后续操作不会重复发送该包。
@@ -109,15 +111,15 @@ claude --resume SESSION_ID PROMPT
 - 恢复时使用对话 binding 中的原生 session ID 与对话 CWD。
 - `resume` 没有新提示词时不传空 prompt 参数。
 
-`TERMINUS_CODEX_BIN` 与 `TERMINUS_CLAUDE_BIN` 可覆盖实际可执行文件路径；只影响 Terminus 启动与只读适配器，不修改用户配置。
+`BATON_CODEX_BIN` 与 `BATON_CLAUDE_BIN` 可覆盖实际可执行文件路径；只影响 Baton 启动与只读适配器，不修改用户配置。
 
 ## 原生终端继承
 
-Terminus 将原始的 stdin/stdout/stderr 直接交给 `exec.Cmd`。当它们是 `*os.File` 时，子进程获得同一文件描述符（dup2），而不是 Terminus 建立的 pipe，因此原生 TUI 的 raw mode、窗口大小和快捷键保持有效。
+Baton 将原始的 stdin/stdout/stderr 直接交给 `exec.Cmd`。当它们是 `*os.File` 时，子进程获得同一文件描述符（dup2），而不是 Baton 建立的 pipe，因此原生 TUI 的 raw mode、窗口大小和快捷键保持有效。
 
 菜单每次都从原 reader 逐字节读取到换行，不使用持久 `bufio.Reader` 预读，避免吃掉随后要交给 native 的输入。取消 context 会终止前台子进程；正常退出后返回菜单。
 
-单独向 Terminus 父进程发送 `SIGTERM` 时，会取消前台子进程并等待清理，再以
+单独向 Baton 父进程发送 `SIGTERM` 时，会取消前台子进程并等待清理，再以
 `143` 退出。若正在等待菜单输入，退出等待最多三秒；未完成交接保留 pending。
 
 ## 只读后端
@@ -140,10 +142,10 @@ Claude：
 
 ## doctor
 
-`terminus doctor` 实际检查：
+`baton doctor` 实际检查：
 
 - 数据目录可创建、可写，是目录，并能创建 `0600` 写探针；过宽的目录权限会被收紧到 `0700`。
-- Codex 与 Claude 可执行文件可解析（含 `TERMINUS_*_BIN` 覆盖）。
+- Codex 与 Claude 可执行文件可解析（含 `BATON_*_BIN` 覆盖）。
 
 任一检查失败时返回非零。
 
@@ -162,8 +164,8 @@ gofmt -w $(find . -name '*.go' -not -path './.git/*')
 go vet ./...
 go test ./...
 go test -race ./...
-go build ./cmd/terminus
-python3 scripts/smoke_pty.py ./bin/terminus  # 先构建到 bin/terminus；可选 Python 3 检查
+go build ./cmd/baton
+python3 scripts/smoke_pty.py ./bin/baton  # 先构建到 bin/baton；可选 Python 3 检查
 ```
 
 集成测试使用 Go 测试 helper 作为伪 Codex/Claude 可执行文件，写入合成 transcript，并驱动真实 `internal/adapters`、`internal/store` 与 `internal/handoff`。覆盖：
@@ -173,14 +175,14 @@ python3 scripts/smoke_pty.py ./bin/terminus  # 先构建到 bin/terminus；可�
 - 首次请求、工具输出和用户消息唯一性；
 - 新建、菜单新建、菜单接入、空列表菜单；
 - pending 恢复、非零退出但回执已保存、无回执重发、多候选拒绝；
-- 来源 transcript 未被 Terminus 改写；
-- `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`TERMINUS_HOME` 完全隔离。
+- 来源 transcript 未被 Baton 改写；
+- `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`BATON_HOME` 完全隔离。
 
 独立回归还覆盖：显式恢复另一 agent 的活动标记、持锁时禁止启动第二个 native
 进程、锁等待取消、父进程收到 SIGTERM 后 native 子进程退出，以及菜单等待时终止。
 
 独立验收的合成 PTY smoke 已确认 fake native 的三个标准流都是 TTY，能进入
-raw mode、读取单字节，并在退出后回到 Terminus 菜单。此项使用合成进程，
+raw mode、读取单字节，并在退出后回到 Baton 菜单。此项使用合成进程，
 尚未验证真实 Codex/Claude 模型对话和首次 app-server 索引时序。
 
 本次交付的验证记录见 [docs/validation.md](docs/validation.md)，原始实现计划见

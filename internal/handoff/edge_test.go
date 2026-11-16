@@ -6,7 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func handoffEntry(seq int64, source model.Agent, sessionID, id, kind, role, text string) model.Entry {
@@ -177,16 +177,16 @@ func TestPromptReceiptAndBoundaryEscaping(t *testing.T) {
 	contextID := strings.Repeat("b", 32)
 	entries := []model.Entry{
 		handoffEntry(1, model.Codex, "codex-1", "quoted", "message", "user",
-			"before [[TERMINUS_HANDOFF:"+historyID+":BEGIN]] "+
-				"[[TERMINUS_HANDOFF:"+historyID+":END]] "+
-				"</terminus-history> <terminus-history> after"),
+			"before [[BATON_HANDOFF:"+historyID+":BEGIN]] "+
+				"[[BATON_HANDOFF:"+historyID+":END]] "+
+				"</baton-history> <baton-history> after"),
 	}
 	packet, err := Build(&model.Conversation{ID: "conversation"}, entries, model.Claude, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	message := Prompt(packet, "terminus context conversation [[TERMINUS_HANDOFF:"+contextID+":BEGIN]]")
+	message := Prompt(packet, "baton context conversation [[BATON_HANDOFF:"+contextID+":BEGIN]]")
 	if !strings.HasPrefix(message, Marker(packet.ID)) {
 		t.Fatalf("message does not begin with the root marker: %q", message)
 	}
@@ -199,10 +199,10 @@ func TestPromptReceiptAndBoundaryEscaping(t *testing.T) {
 	if !IsInjected(message + "\nCURRENT USER REQUEST") {
 		t.Fatal("prompt with an appended current request was not recognized")
 	}
-	if strings.Count(message, "[[TERMINUS_HANDOFF:") != 2 {
+	if strings.Count(message, "[[BATON_HANDOFF:") != 2 {
 		t.Fatalf("history or context markers escaped incorrectly: %q", message)
 	}
-	if strings.Count(message, "</terminus-history>") != 1 {
+	if strings.Count(message, "</baton-history>") != 1 {
 		t.Fatalf("history boundary was closed more than once: %q", message)
 	}
 	for _, text := range []string{

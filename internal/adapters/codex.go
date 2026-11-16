@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 type adapterFailure struct {
@@ -43,7 +43,7 @@ const (
 
 func newCodexAdapter() *codexAdapter {
 	return &codexAdapter{
-		bin:     envPath("TERMINUS_CODEX_BIN", ""),
+		bin:     envPath("BATON_CODEX_BIN", ""),
 		home:    envPath("CODEX_HOME", ".codex"),
 		timeout: 8 * time.Second,
 	}

@@ -16,23 +16,23 @@ import (
 	"syscall"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 type Store struct{ root string }
 
 func DefaultRoot() (string, error) {
-	if p := os.Getenv("TERMINUS_HOME"); p != "" {
+	if p := os.Getenv("BATON_HOME"); p != "" {
 		return p, nil
 	}
 	if p := os.Getenv("XDG_DATA_HOME"); p != "" {
-		return filepath.Join(p, "terminus"), nil
+		return filepath.Join(p, "baton"), nil
 	}
 	h, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, ".local", "share", "terminus"), nil
+	return filepath.Join(h, ".local", "share", "baton"), nil
 }
 func New(root string) *Store { return &Store{root: root} }
 func validID(id string) bool {

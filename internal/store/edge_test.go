@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func TestLockWaitCanBeCanceled(t *testing.T) {
@@ -314,14 +314,14 @@ func TestCorruptJournalRejectsAppendWithoutModification(t *testing.T) {
 }
 
 func TestLockSerializesCompetingProcesses(t *testing.T) {
-	const childMode = "TERMINUS_LOCK_CONTENTION_CHILD"
+	const childMode = "BATON_LOCK_CONTENTION_CHILD"
 	if os.Getenv(childMode) == "1" {
-		store := New(os.Getenv("TERMINUS_LOCK_CONTENTION_ROOT"))
-		if err := os.WriteFile(os.Getenv("TERMINUS_LOCK_CONTENTION_ATTEMPT"), []byte("attempting"), 0600); err != nil {
+		store := New(os.Getenv("BATON_LOCK_CONTENTION_ROOT"))
+		if err := os.WriteFile(os.Getenv("BATON_LOCK_CONTENTION_ATTEMPT"), []byte("attempting"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		err := store.WithLock(os.Getenv("TERMINUS_LOCK_CONTENTION_ID"), func() error {
-			return os.WriteFile(os.Getenv("TERMINUS_LOCK_CONTENTION_ACQUIRED"), []byte("acquired"), 0600)
+		err := store.WithLock(os.Getenv("BATON_LOCK_CONTENTION_ID"), func() error {
+			return os.WriteFile(os.Getenv("BATON_LOCK_CONTENTION_ACQUIRED"), []byte("acquired"), 0600)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -365,10 +365,10 @@ func TestLockSerializesCompetingProcesses(t *testing.T) {
 	command.Stderr = &childOutput
 	command.Env = append(os.Environ(),
 		childMode+"=1",
-		"TERMINUS_LOCK_CONTENTION_ROOT="+root,
-		"TERMINUS_LOCK_CONTENTION_ID="+conversation.ID,
-		"TERMINUS_LOCK_CONTENTION_ATTEMPT="+attemptPath,
-		"TERMINUS_LOCK_CONTENTION_ACQUIRED="+acquiredPath,
+		"BATON_LOCK_CONTENTION_ROOT="+root,
+		"BATON_LOCK_CONTENTION_ID="+conversation.ID,
+		"BATON_LOCK_CONTENTION_ATTEMPT="+attemptPath,
+		"BATON_LOCK_CONTENTION_ACQUIRED="+acquiredPath,
 	)
 	if err := command.Start(); err != nil {
 		t.Fatal(err)

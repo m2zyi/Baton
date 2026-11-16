@@ -1,4 +1,4 @@
-// Package cli implements the Terminus command-line interface.
+// Package cli implements the Baton command-line interface.
 package cli
 
 import (
@@ -15,18 +15,18 @@ import (
 	"strings"
 	"time"
 
-	"terminus/internal/adapters"
-	"terminus/internal/handoff"
-	"terminus/internal/launcher"
-	"terminus/internal/model"
-	"terminus/internal/store"
+	"baton/internal/adapters"
+	"baton/internal/handoff"
+	"baton/internal/launcher"
+	"baton/internal/model"
+	"baton/internal/store"
 )
 
 const (
 	Version = "0.1.0"
 	budget  = 12 * 1024
 
-	firstRequestPrefix = "terminus:first-request:"
+	firstRequestPrefix = "baton:first-request:"
 )
 
 var errNoReceipt = errors.New("native transcript does not yet contain the pending handoff receipt")
@@ -82,7 +82,7 @@ func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 func RunWithOptions(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, options Options) int {
 	if in == nil || out == nil || errOut == nil {
 		if errOut != nil {
-			fmt.Fprintln(errOut, "terminus: input and output streams are required")
+			fmt.Fprintln(errOut, "baton: input and output streams are required")
 		}
 		return 2
 	}
@@ -91,7 +91,7 @@ func RunWithOptions(ctx context.Context, args []string, in io.Reader, out, errOu
 		var err error
 		root, err = store.DefaultRoot()
 		if err != nil {
-			fmt.Fprintf(errOut, "terminus: resolve data directory: %v\n", err)
+			fmt.Fprintf(errOut, "baton: resolve data directory: %v\n", err)
 			return 1
 		}
 	}
@@ -111,7 +111,7 @@ func RunWithOptions(ctx context.Context, args []string, in io.Reader, out, errOu
 	}
 	code, err := app.execute(ctx, args)
 	if err != nil {
-		fmt.Fprintf(errOut, "terminus: %v\n", err)
+		fmt.Fprintf(errOut, "baton: %v\n", err)
 		if code == 0 {
 			code = 1
 		}
@@ -142,37 +142,37 @@ func (a *App) execute(ctx context.Context, args []string) (int, error) {
 		writeHelp(a.out)
 		return 0, nil
 	case "version", "--version":
-		fmt.Fprintf(a.out, "terminus %s\n", Version)
+		fmt.Fprintf(a.out, "baton %s\n", Version)
 		return 0, nil
 	default:
-		return 2, fmt.Errorf("unknown command %q; run terminus help", args[0])
+		return 2, fmt.Errorf("unknown command %q; run baton help", args[0])
 	}
 }
 
 func writeHelp(w io.Writer) {
-	fmt.Fprint(w, `Terminus: continue one conversation between native agent CLIs.
+	fmt.Fprint(w, `Baton: continue one conversation between native agent CLIs.
 
 Usage:
-  terminus                             Open the session menu in the current directory
-  terminus start --agent codex|claude [--prompt TEXT]
-  terminus attach --agent codex|claude --session NATIVE_SESSION_ID
-  terminus switch --to codex|claude [--conversation TERMINUS_ID] [--from NATIVE_SESSION_ID]
-  terminus resume TERMINUS_ID [--agent codex|claude]
-  terminus list [--json]
-  terminus context TERMINUS_ID [--after N] [--limit N] [--json]
-  terminus doctor
-  terminus help | version
+  baton                             Open the session menu in the current directory
+  baton start --agent codex|claude [--prompt TEXT]
+  baton attach --agent codex|claude --session NATIVE_SESSION_ID
+  baton switch --to codex|claude [--conversation BATON_ID] [--from NATIVE_SESSION_ID]
+  baton resume BATON_ID [--agent codex|claude]
+  baton list [--json]
+  baton context BATON_ID [--after N] [--limit N] [--json]
+  baton doctor
+  baton help | version
 
 The menu also creates and attaches conversations. A conversation without any
 binding can still be opened, inspected, and handed off later.
 
 ID distinction:
   --session and --from are native CLI session IDs.
-  TERMINUS_ID, --conversation, resume, and context use Terminus conversation IDs.
-  Terminus conversation IDs are local 32-character lowercase hex values.
+  BATON_ID, --conversation, resume, and context use Baton conversation IDs.
+  Baton conversation IDs are local 32-character lowercase hex values.
 
 Options may follow the conversation ID for resume and context, for example:
-  terminus context 0123abcd... --after 20 --limit 10 --json
+  baton context 0123abcd... --after 20 --limit 10 --json
 `)
 }
 
@@ -238,7 +238,7 @@ func (a *App) startLocked(ctx context.Context, c *model.Conversation, agent mode
 	provisional := model.Event{
 		ID:        firstRequestPrefix + c.ID,
 		Source:    agent,
-		SessionID: "terminus:" + c.ID,
+		SessionID: "baton:" + c.ID,
 		Kind:      "message",
 		Role:      "user",
 		Text:      first,
@@ -332,7 +332,7 @@ func (a *App) switchCommand(ctx context.Context, args []string) (int, error) {
 	fs.SetOutput(a.errOut)
 	var target agentFlag
 	fs.Var(&target, "to", "target native agent")
-	conversationID := fs.String("conversation", "", "Terminus conversation ID")
+	conversationID := fs.String("conversation", "", "Baton conversation ID")
 	fromSession := fs.String("from", "", "native source session ID")
 	if err := fs.Parse(args); err != nil {
 		return 2, err
@@ -483,7 +483,7 @@ func (a *App) resume(ctx context.Context, args []string) (int, error) {
 		return 2, err
 	}
 	if id == "" {
-		return 2, errors.New("resume requires one Terminus conversation ID")
+		return 2, errors.New("resume requires one Baton conversation ID")
 	}
 	if fs.NArg() != 0 {
 		return 2, fmt.Errorf("unexpected argument %q", fs.Arg(0))
@@ -628,7 +628,7 @@ func (a *App) context(ctx context.Context, args []string) (int, error) {
 		return 2, err
 	}
 	if id == "" {
-		return 2, errors.New("context requires one Terminus conversation ID")
+		return 2, errors.New("context requires one Baton conversation ID")
 	}
 	if fs.NArg() != 0 {
 		return 2, fmt.Errorf("unexpected argument %q", fs.Arg(0))
@@ -711,7 +711,7 @@ func checkStore(root string) (string, error) {
 	}
 	dirMode := info.Mode().Perm()
 	if dirMode&0077 != 0 {
-		// This is Terminus's own data root, and store.Create applies the same
+		// This is Baton's own data root, and store.Create applies the same
 		// tightening. Repair it instead of accepting a world-readable journal.
 		if err := os.Chmod(root, 0700); err != nil {
 			return "", fmt.Errorf("directory mode %04o is more open than 0700: %w", dirMode, err)
@@ -735,7 +735,7 @@ func checkStore(root string) (string, error) {
 		file.Close()
 		return "", err
 	}
-	if _, err := file.WriteString("terminus doctor\n"); err != nil {
+	if _, err := file.WriteString("baton doctor\n"); err != nil {
 		file.Close()
 		return "", err
 	}
@@ -764,7 +764,7 @@ func (a *App) menu(ctx context.Context) (int, error) {
 		if err != nil {
 			return 1, err
 		}
-		fmt.Fprintf(a.out, "\nTerminus in %s\n", a.cwd())
+		fmt.Fprintf(a.out, "\nBaton in %s\n", a.cwd())
 		fmt.Fprintln(a.out, "1) new conversation")
 		fmt.Fprintln(a.out, "2) attach existing native session")
 		for index, c := range conversations {
@@ -806,14 +806,14 @@ func (a *App) menu(ctx context.Context) (int, error) {
 			}
 			id, code, actionErr := a.startAction(ctx, agent, first)
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 				lastCode = nonzero(code)
 				continue
 			}
 			lastCode = 0
 			code, actionErr = a.menuFor(ctx, id)
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 			}
 			lastCode = code
 		case "2":
@@ -835,14 +835,14 @@ func (a *App) menu(ctx context.Context) (int, error) {
 			}
 			id, code, actionErr := a.attachAction(ctx, agent, session.ID)
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 				lastCode = nonzero(code)
 				continue
 			}
 			lastCode = 0
 			code, actionErr = a.menuFor(ctx, id)
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 			}
 			lastCode = code
 		default:
@@ -853,7 +853,7 @@ func (a *App) menu(ctx context.Context) (int, error) {
 			}
 			code, actionErr := a.menuFor(ctx, conversations[index-3].ID)
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 			}
 			lastCode = code
 		}
@@ -875,7 +875,7 @@ func (a *App) menuFor(ctx context.Context, id string) (int, error) {
 		if c.Pending != nil {
 			pending = fmt.Sprintf(", pending %s", c.Pending.Packet.Target)
 		}
-		fmt.Fprintf(a.out, "\nTerminus conversation %s in %s (active %s%s)\n", c.ID, c.CWD, active, pending)
+		fmt.Fprintf(a.out, "\nBaton conversation %s in %s (active %s%s)\n", c.ID, c.CWD, active, pending)
 		if c.Pending != nil {
 			fmt.Fprintf(a.out, "1) retry pending %s handoff\n", c.Pending.Packet.Target)
 		} else {
@@ -906,7 +906,7 @@ func (a *App) menuFor(ctx context.Context, id string) (int, error) {
 			code, actionErr := a.resumeAction(ctx, id, selected)
 			lastCode = code
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 			}
 		case "2", "3":
 			target := model.Codex
@@ -916,13 +916,13 @@ func (a *App) menuFor(ctx context.Context, id string) (int, error) {
 			code, actionErr := a.handoffAction(ctx, id, target, "")
 			lastCode = code
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 			}
 		case "4":
 			code, actionErr := a.context(ctx, []string{id})
 			lastCode = code
 			if actionErr != nil {
-				fmt.Fprintf(a.errOut, "terminus: %v\n", actionErr)
+				fmt.Fprintf(a.errOut, "baton: %v\n", actionErr)
 			}
 		default:
 			fmt.Fprintln(a.errOut, "invalid choice")
@@ -953,7 +953,7 @@ func (a *App) chooseAgent() (model.Agent, error) {
 }
 
 func (a *App) selectConversation(conversations []model.Conversation) (model.Conversation, error) {
-	fmt.Fprintln(a.out, "Terminus conversations in this directory:")
+	fmt.Fprintln(a.out, "Baton conversations in this directory:")
 	for i, c := range conversations {
 		fmt.Fprintf(a.out, "%d) %s  agent=%s  updated=%s\n", i+1, c.ID, c.ActiveAgent, c.UpdatedAt.Format(time.RFC3339))
 	}
@@ -1540,13 +1540,13 @@ func (a *App) cwd() string {
 
 func (a *App) storeRoot() string { return a.options.StoreRoot }
 
-func (a *App) contextCommand(id string) string { return "terminus context " + id }
+func (a *App) contextCommand(id string) string { return "baton context " + id }
 
 func (o Options) customBinary(agent model.Agent) string {
 	if agent == model.Codex {
-		return os.Getenv("TERMINUS_CODEX_BIN")
+		return os.Getenv("BATON_CODEX_BIN")
 	}
-	return os.Getenv("TERMINUS_CLAUDE_BIN")
+	return os.Getenv("BATON_CLAUDE_BIN")
 }
 
 func randomUUID() (string, error) {

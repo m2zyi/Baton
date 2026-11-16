@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 // Adapter discovers and reads native sessions without modifying them.

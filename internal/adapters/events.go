@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 func eventIDFromContent(prefix string, values ...string) string {

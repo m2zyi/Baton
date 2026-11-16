@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var handoffBeginPattern = regexp.MustCompile(`^\[\[TERMINUS_HANDOFF:([A-Za-z0-9][A-Za-z0-9._-]*):BEGIN\]\]`)
+var handoffBeginPattern = regexp.MustCompile(`^\[\[BATON_HANDOFF:([A-Za-z0-9][A-Za-z0-9._-]*):BEGIN\]\]`)
 
 // SplitHandoffReceipt recognizes a complete handoff marker only when the BEGIN
 // marker is at the root of text and its matching END marker closes that package.
@@ -20,7 +20,7 @@ func SplitHandoffReceipt(text string) (receipt, rest, packetID string, ok bool) 
 		return "", "", "", false
 	}
 	packetID = text[match[2]:match[3]]
-	endMarker := "[[TERMINUS_HANDOFF:" + packetID + ":END]]"
+	endMarker := "[[BATON_HANDOFF:" + packetID + ":END]]"
 	endOffset := strings.Index(text[match[1]:], endMarker)
 	if endOffset < 0 {
 		return "", "", "", false

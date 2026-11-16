@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/model"
+	"baton/internal/model"
 )
 
 // The subprocess speaks line-delimited JSON on stdin/stdout, like app-server.

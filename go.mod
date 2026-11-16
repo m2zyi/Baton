@@ -1,3 +1,3 @@
-module terminus
+module baton
 
 go 1.25

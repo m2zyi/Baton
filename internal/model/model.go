@@ -1,4 +1,4 @@
-// Package model defines the shared contracts between Terminus components.
+// Package model defines the shared contracts between Baton components.
 package model
 
 import "time"

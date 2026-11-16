@@ -17,22 +17,22 @@ import (
 	"testing"
 	"time"
 
-	"terminus/internal/adapters"
-	"terminus/internal/handoff"
-	"terminus/internal/launcher"
-	"terminus/internal/model"
-	"terminus/internal/store"
+	"baton/internal/adapters"
+	"baton/internal/handoff"
+	"baton/internal/launcher"
+	"baton/internal/model"
+	"baton/internal/store"
 )
 
 // TestFakeNativeCLI is a helper process that behaves like a tiny native agent.
 // It writes only synthetic transcripts under the test-provided homes.
 func TestFakeNativeCLI(t *testing.T) {
-	agent := os.Getenv("TERMINUS_FAKE_AGENT")
+	agent := os.Getenv("BATON_FAKE_AGENT")
 	if agent == "" {
 		return
 	}
 	code := runFakeNative(agent, fakeCLIArgs())
-	if raw := os.Getenv("TERMINUS_FAKE_EXIT"); raw != "" {
+	if raw := os.Getenv("BATON_FAKE_EXIT"); raw != "" {
 		if exit, err := strconv.Atoi(raw); err == nil {
 			code = exit
 		}
@@ -74,7 +74,7 @@ func runFakeNative(agent string, args []string) int {
 }
 
 func appendFakeLog(invocation fakeInvocation) {
-	path := os.Getenv("TERMINUS_FAKE_LOG")
+	path := os.Getenv("BATON_FAKE_LOG")
 	if path == "" {
 		return
 	}
@@ -146,7 +146,7 @@ func runFakeCodex(args []string, cwd string) int {
 			return 2
 		}
 	}
-	if prompt != "" && os.Getenv("TERMINUS_FAKE_NO_RECEIPT") != "1" {
+	if prompt != "" && os.Getenv("BATON_FAKE_NO_RECEIPT") != "1" {
 		if err := appendJSONLine(path, map[string]any{
 			"timestamp": fakeTimestamp(),
 			"type":      "response_item",
@@ -233,7 +233,7 @@ func runFakeClaude(args []string, cwd string) int {
 		}
 	}
 	userUUID := ""
-	if prompt != "" && os.Getenv("TERMINUS_FAKE_NO_RECEIPT") != "1" {
+	if prompt != "" && os.Getenv("BATON_FAKE_NO_RECEIPT") != "1" {
 		userUUID = fmt.Sprintf("%s-u-%d", sessionID, turn)
 		var parent any
 		if lastUUID != "" {
@@ -355,14 +355,14 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 	binDir := t.TempDir()
 	f.codexBin = writeFakeCLI(t, binDir, "codex")
 	f.claudeBin = writeFakeCLI(t, binDir, "claude")
-	t.Setenv("TERMINUS_HOME", root)
+	t.Setenv("BATON_HOME", root)
 	t.Setenv("CODEX_HOME", f.codexHome)
 	t.Setenv("CLAUDE_CONFIG_DIR", f.claudeHome)
-	t.Setenv("TERMINUS_CODEX_BIN", f.codexBin)
-	t.Setenv("TERMINUS_CLAUDE_BIN", f.claudeBin)
-	t.Setenv("TERMINUS_FAKE_LOG", f.logPath)
-	t.Setenv("TERMINUS_FAKE_EXIT", "")
-	t.Setenv("TERMINUS_FAKE_NO_RECEIPT", "")
+	t.Setenv("BATON_CODEX_BIN", f.codexBin)
+	t.Setenv("BATON_CLAUDE_BIN", f.claudeBin)
+	t.Setenv("BATON_FAKE_LOG", f.logPath)
+	t.Setenv("BATON_FAKE_EXIT", "")
+	t.Setenv("BATON_FAKE_NO_RECEIPT", "")
 	return f
 }
 
@@ -373,7 +373,7 @@ func writeFakeCLI(t *testing.T, dir, agent string) string {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "fake-"+agent)
-	script := fmt.Sprintf("#!/bin/sh\nTERMINUS_FAKE_AGENT=%s\nexport TERMINUS_FAKE_AGENT\nexec %q -test.run=^TestFakeNativeCLI$ -- \"$@\"\n", agent, executable)
+	script := fmt.Sprintf("#!/bin/sh\nBATON_FAKE_AGENT=%s\nexport BATON_FAKE_AGENT\nexec %q -test.run=^TestFakeNativeCLI$ -- \"$@\"\n", agent, executable)
 	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +489,7 @@ func assertContainsOnce(t *testing.T, entries []model.Entry, text string) {
 func assertJournalClean(t *testing.T, entries []model.Entry) {
 	t.Helper()
 	for _, entry := range entries {
-		if entry.Event.Kind == "handoff" || strings.Contains(entry.Event.Text, "TERMINUS_HANDOFF:") {
+		if entry.Event.Kind == "handoff" || strings.Contains(entry.Event.Text, "BATON_HANDOFF:") {
 			t.Fatalf("handoff/injection leaked into journal: %#v", entry)
 		}
 	}
@@ -959,7 +959,7 @@ func TestPendingRecoveryChecksReceiptWithoutResending(t *testing.T) {
 	writeClaudeFixtureRecord(t, path, f.cwd, c.Pending.SessionID, map[string]any{
 		"parentUuid": nil,
 		"type":       "user",
-		"message":    map[string]any{"role": "user", "content": handoff.Prompt(c.Pending.Packet, "terminus context "+c.ID)},
+		"message":    map[string]any{"role": "user", "content": handoff.Prompt(c.Pending.Packet, "baton context "+c.ID)},
 		"uuid":       "late-receipt",
 		"timestamp":  "2026-11-11T12:00:00Z",
 	})
@@ -1004,7 +1004,7 @@ func TestBoundReceiptRecoveryUsesPinnedSession(t *testing.T) {
 	if c.Pending == nil || c.Pending.Packet.Target != model.Codex {
 		t.Fatalf("pending = %#v", c.Pending)
 	}
-	receipt := handoff.Prompt(c.Pending.Packet, "terminus context "+c.ID)
+	receipt := handoff.Prompt(c.Pending.Packet, "baton context "+c.ID)
 	if err := appendJSONLine(codexBinding.Session.Path, map[string]any{
 		"timestamp": fakeTimestamp(),
 		"type":      "response_item",
@@ -1084,7 +1084,7 @@ func TestNonzeroExitWithSavedReceiptIsRecoverable(t *testing.T) {
 		t.Fatalf("start code = %d, stdout = %q, stderr = %q", code, out, errOut)
 	}
 	c := f.onlyConversation(t)
-	t.Setenv("TERMINUS_FAKE_EXIT", "1")
+	t.Setenv("BATON_FAKE_EXIT", "1")
 	code, out, errOut = f.run(t, "q\n", "switch", "--to", "claude", "--conversation", c.ID)
 	if code == 0 || !strings.Contains(errOut, "run native claude") {
 		t.Fatalf("nonzero switch code = %d, stdout = %q, stderr = %q", code, out, errOut)
@@ -1099,7 +1099,7 @@ func TestNonzeroExitWithSavedReceiptIsRecoverable(t *testing.T) {
 	}
 	assertUnique(t, f.entries(t, c.ID), "claude answer 1")
 
-	t.Setenv("TERMINUS_FAKE_EXIT", "")
+	t.Setenv("BATON_FAKE_EXIT", "")
 	before := len(f.invocations(t))
 	code, out, errOut = f.run(t, "q\n", "switch", "--to", "claude", "--conversation", c.ID)
 	if code != 0 {
@@ -1119,7 +1119,7 @@ func TestNoReceiptKeepsPendingAndRetryResends(t *testing.T) {
 		t.Fatalf("start code = %d, stdout = %q, stderr = %q", code, out, errOut)
 	}
 	c := f.onlyConversation(t)
-	t.Setenv("TERMINUS_FAKE_NO_RECEIPT", "1")
+	t.Setenv("BATON_FAKE_NO_RECEIPT", "1")
 	code, out, errOut = f.run(t, "q\n", "switch", "--to", "claude", "--conversation", c.ID)
 	if code == 0 || !strings.Contains(errOut, "pending handoff receipt") {
 		t.Fatalf("no receipt code = %d, stdout = %q, stderr = %q", code, out, errOut)
@@ -1129,7 +1129,7 @@ func TestNoReceiptKeepsPendingAndRetryResends(t *testing.T) {
 		t.Fatalf("pending = %#v", c.Pending)
 	}
 	marker := handoff.Marker(c.Pending.Packet.ID)
-	t.Setenv("TERMINUS_FAKE_NO_RECEIPT", "")
+	t.Setenv("BATON_FAKE_NO_RECEIPT", "")
 	code, out, errOut = f.run(t, "q\n", "switch", "--to", "claude", "--conversation", c.ID)
 	if code != 0 {
 		t.Fatalf("retry code = %d, stdout = %q, stderr = %q", code, out, errOut)
@@ -1159,7 +1159,7 @@ func TestMultipleReceiptCandidatesAreRejected(t *testing.T) {
 	if err := f.store.Save(c); err != nil {
 		t.Fatal(err)
 	}
-	content := handoff.Prompt(packet, "terminus context "+c.ID)
+	content := handoff.Prompt(packet, "baton context "+c.ID)
 	for _, sessionID := range []string{"candidate-a", "candidate-b"} {
 		path := filepath.Join(f.claudeHome, "projects", encodeClaudeProject(f.cwd), sessionID+".jsonl")
 		writeClaudeFixtureRecord(t, path, f.cwd, sessionID, map[string]any{
@@ -1256,8 +1256,8 @@ func TestDoctorChecksStoreAndExecutables(t *testing.T) {
 			t.Fatalf("doctor output %q missing %q", out, want)
 		}
 	}
-	t.Setenv("TERMINUS_CODEX_BIN", filepath.Join(f.root, "missing-codex"))
-	t.Setenv("TERMINUS_CLAUDE_BIN", filepath.Join(f.root, "missing-claude"))
+	t.Setenv("BATON_CODEX_BIN", filepath.Join(f.root, "missing-codex"))
+	t.Setenv("BATON_CLAUDE_BIN", filepath.Join(f.root, "missing-claude"))
 	code, out, errOut = f.run(t, "", "doctor")
 	if code == 0 || !strings.Contains(out, "not found") {
 		t.Fatalf("missing executables: code = %d, stdout = %q, stderr = %q", code, out, errOut)
@@ -1285,7 +1285,7 @@ func TestDoctorUsesResolvedDefaultRootAndChecksPermissions(t *testing.T) {
 		t.Fatalf("code = %d, stdout = %q, stderr = %q", code, out.String(), errOut.String())
 	}
 	if !strings.Contains(out.String(), "data root: "+f.root) {
-		t.Fatalf("doctor did not resolve TERMINUS_HOME: %q", out.String())
+		t.Fatalf("doctor did not resolve BATON_HOME: %q", out.String())
 	}
 
 	openRoot := filepath.Join(t.TempDir(), "open")
@@ -1349,7 +1349,7 @@ func TestHelpVersionAndMarker(t *testing.T) {
 	}{
 		{[]string{"help"}, "ID distinction:"},
 		{[]string{"--help"}, "Usage:"},
-		{[]string{"version"}, "terminus 0.1.0"},
+		{[]string{"version"}, "baton 0.1.0"},
 	} {
 		var out, errOut strings.Builder
 		if code := Run(context.Background(), test.args, strings.NewReader(""), &out, &errOut); code != 0 {
@@ -1360,7 +1360,7 @@ func TestHelpVersionAndMarker(t *testing.T) {
 		}
 	}
 	marker := handoff.Marker("00000000000000000000000000000001")
-	if !handoff.IsInjected(marker + "\nhistory\n" + "[[TERMINUS_HANDOFF:00000000000000000000000000000001:END]]") {
+	if !handoff.IsInjected(marker + "\nhistory\n" + "[[BATON_HANDOFF:00000000000000000000000000000001:END]]") {
 		t.Fatal("complete receipt not recognized")
 	}
 	if handoff.IsInjected(marker + "\nhistory") {
